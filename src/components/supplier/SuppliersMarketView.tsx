@@ -4,6 +4,7 @@ import {
   Boxes,
   CheckCircle2,
   ExternalLink,
+  Heart,
   Layers,
   Megaphone,
   MessageSquare,
@@ -57,6 +58,31 @@ import {
   getStoredCustomerDisplayCurrency,
   saveStoredCustomerDisplayCurrency,
 } from '../../lib/currency';
+import {
+  WishlistItem,
+  getWishlistItems,
+  removeWishlistItem,
+  toggleWishlistItem,
+} from '../../services/wishlistService';
+import {
+  PublicCompareItem,
+  clearCompareScope,
+  getCompareItemsByScope,
+  removeCompareItem,
+  toggleCompareItem,
+} from '../../services/marketCompareService';
+import {
+  MarketShamousaActiveFilter,
+  sanitizePublicMarketItem,
+} from '../../services/shamousaMarketEngine';
+import {
+  PublicCompareModal,
+  PublicFavoritesDrawer,
+} from '../marketplace/PublicFavoritesCompareModals';
+import {
+  ShamousaActiveFilterBar,
+  ShamousaMarketAssistantWidget,
+} from '../marketplace/ShamousaMarketAssistantWidget';
 
 interface SuppliersMarketViewProps {
   profile?: UserProfile | null;
@@ -128,14 +154,37 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
   const [displayCurrency, setDisplayCurrency] = useState<string>(() =>
     getStoredCustomerDisplayCurrency()
   );
+  const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>(() => getWishlistItems());
+  const [isWishlistOpen, setIsWishlistOpen] = useState<boolean>(false);
+  const [compareItems, setCompareItems] = useState<PublicCompareItem[]>(() =>
+    getCompareItemsByScope('supplier')
+  );
+  const [isCompareOpen, setIsCompareOpen] = useState<boolean>(false);
+  const [shamousaFilter, setShamousaFilter] = useState<MarketShamousaActiveFilter | null>(null);
+  const [shamousaShippingHint, setShamousaShippingHint] = useState<string | null>(null);
+  const [shamousaOpenSignal, setShamousaOpenSignal] = useState<number>(0);
+
+  const wishlistIds = useMemo(() => new Set(wishlistItems.map((i) => i.id)), [wishlistItems]);
+  const compareIds = useMemo(() => new Set(compareItems.map((i) => i.id)), [compareItems]);
 
   useEffect(() => {
     const onCurr = (e: any) => {
       if (e?.detail) setDisplayCurrency(String(e.detail));
       else setDisplayCurrency(getStoredCustomerDisplayCurrency());
     };
+    const onWishlistUpdate = (e: any) => {
+      if (Array.isArray(e?.detail)) setWishlistItems(e.detail);
+      else setWishlistItems(getWishlistItems());
+    };
+    const onCompareUpdate = () => setCompareItems(getCompareItemsByScope('supplier'));
     window.addEventListener('alshams_customer_currency_updated', onCurr);
-    return () => window.removeEventListener('alshams_customer_currency_updated', onCurr);
+    window.addEventListener('alshams_wishlist_updated', onWishlistUpdate);
+    window.addEventListener('alshams_compare_updated', onCompareUpdate);
+    return () => {
+      window.removeEventListener('alshams_customer_currency_updated', onCurr);
+      window.removeEventListener('alshams_wishlist_updated', onWishlistUpdate);
+      window.removeEventListener('alshams_compare_updated', onCompareUpdate);
+    };
   }, []);
 
   const displayCurrencyInfo = getCurrencyInfo(displayCurrency);
@@ -282,11 +331,41 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
     });
   }, [entries, searchQuery, sectionFilter, governorateFilter, wholesaleOnly, marketCfg.featuredSupplierIds]);
 
+  const sanitizedSupplierCatalog = useMemo(() => {
+    const out: ReturnType<typeof sanitizePublicMarketItem>[] = [];
+    entries.forEach((entry) => {
+      const sup = entry.supplier;
+      entry.items.forEach((item) => {
+        const sec = SUPPLIER_SUPPLY_SECTIONS.find((s) => s.id === item.sectionId);
+        out.push(
+          sanitizePublicMarketItem({
+            id: item.id,
+            name: item.name,
+            description: item.description,
+            craftOrCategory: sec?.titleAr || item.sectionId,
+            priceEgp: Number(item.retailPrice || 0),
+            wholesalePriceEgp: item.wholesalePrice > 0 ? Number(item.wholesalePrice) : undefined,
+            minWholesaleQty: item.minWholesaleQty,
+            unitLabel: item.unit,
+            inStock: (item.stockQty ?? 0) > 0,
+            storeName: sup.brandName,
+            storeSlug: sup.storeSlug || sup.id,
+            storeId: sup.id,
+            imageUrl: item.images?.[0],
+          })
+        );
+      });
+    });
+    return out;
+  }, [entries]);
+
   const flatMaterials = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const shamousaIdSet = shamousaFilter ? new Set(shamousaFilter.matchedIds) : null;
     const rows: { item: SupplierCatalogItem; supplier: SupplierProfile; ratingAvg: number; reviewsCount: number }[] = [];
     filteredEntries.forEach((entry) => {
       entry.items.forEach((item) => {
+        if (shamousaIdSet && !shamousaIdSet.has(item.id)) return;
         if (sectionFilter !== 'all' && item.sectionId !== sectionFilter) return;
         if (wholesaleOnly && !(item.wholesalePrice > 0)) return;
         if (
@@ -305,8 +384,56 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
         });
       });
     });
+    if (shamousaFilter?.sortBy === 'price_asc') {
+      return [...rows].sort((a, b) => Number(a.item.retailPrice || 0) - Number(b.item.retailPrice || 0));
+    }
+    if (shamousaFilter?.sortBy === 'price_desc') {
+      return [...rows].sort((a, b) => Number(b.item.retailPrice || 0) - Number(a.item.retailPrice || 0));
+    }
     return rows;
-  }, [filteredEntries, sectionFilter, wholesaleOnly, searchQuery]);
+  }, [filteredEntries, sectionFilter, wholesaleOnly, searchQuery, shamousaFilter]);
+
+  const handleToggleWishlistMaterial = (item: SupplierCatalogItem, supplier: SupplierProfile) => {
+    const res = toggleWishlistItem({
+      id: item.id,
+      productName: item.name,
+      imageUrl: item.images?.[0] || '/alshams_falcon_emblem.png',
+      egpPrice: Number(item.retailPrice || 0),
+      craftName: item.unit ? `خامة (${item.unit})` : 'خامة',
+      workshopId: supplier.id,
+      artistName: supplier.brandName,
+    });
+    setWishlistItems(res.items);
+    playButtonClickSound();
+    showToast(res.added ? `تم حفظ "${item.name}" في المفضلة ❤️` : `تمت إزالة "${item.name}" من المفضلة`);
+  };
+
+  const handleToggleCompareMaterial = (item: SupplierCatalogItem, supplier: SupplierProfile) => {
+    const res = toggleCompareItem({
+      id: item.id,
+      scope: 'supplier',
+      name: item.name,
+      imageUrl: item.images?.[0] || '/alshams_falcon_emblem.png',
+      priceEgp: Number(item.retailPrice || 0),
+      wholesalePriceEgp: item.wholesalePrice > 0 ? Number(item.wholesalePrice) : undefined,
+      minWholesaleQty: item.minWholesaleQty,
+      unitLabel: item.unit,
+      craftOrCategory: SUPPLIER_SUPPLY_SECTIONS.find((s) => s.id === item.sectionId)?.titleAr,
+      inStock: (item.stockQty ?? 0) > 0,
+      storeName: supplier.brandName,
+      storeSlug: supplier.storeSlug || supplier.id,
+      storeId: supplier.id,
+      publicWhatsapp: supplier.phone || '',
+    });
+    setCompareItems(res.scopeItems);
+    if (res.limitReached) {
+      playErrorSound();
+      showToast('وصلت للحد الأقصى للمقارنة (12 خامة) — افتح المقارنة ⚖️ لتصفيتها.', true);
+    } else {
+      playButtonClickSound();
+      showToast(res.added ? `تمت إضافة "${item.name}" للمقارنة ⚖️` : `تمت إزالة "${item.name}" من المقارنة`);
+    }
+  };
 
   const comparedMaterials = useMemo(() => {
     return [...flatMaterials].sort((a, b) => {
@@ -553,6 +680,36 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
 
             <button
               type="button"
+              onClick={() => setIsWishlistOpen(true)}
+              className="relative px-2.5 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
+              title="المفضلة"
+            >
+              <Heart className={`w-4 h-4 ${wishlistItems.length > 0 ? 'fill-rose-500 text-rose-500' : 'text-[#EA580C] dark:text-[#FBBF24]'}`} />
+              <span className="hidden lg:inline">{t('wishlist')}</span>
+              {wishlistItems.length > 0 && (
+                <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[10px] flex items-center justify-center">
+                  {wishlistItems.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsCompareOpen(true)}
+              className="relative px-2.5 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
+              title="المقارنة المنفصلة + طلب تسعير B2B"
+            >
+              <Scale className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
+              <span className="hidden lg:inline">{locale === 'ar' ? 'المقارنة' : 'Compare'}</span>
+              {compareItems.length > 0 && (
+                <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-[#EA580C] text-white font-mono tabular-nums text-[10px] flex items-center justify-center">
+                  {compareItems.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => setIsCartOpen(true)}
               className="relative px-3.5 py-2 rounded-xl text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm"
               style={{ backgroundColor: activeThemeMeta.accentBg || '#EA580C' }}
@@ -597,6 +754,22 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
             </div>
           </section>
         )}
+
+        {/* شريط فلتر شموسة النشط لسوق الموردين */}
+        <ShamousaActiveFilterBar
+          activeFilter={shamousaFilter}
+          totalCatalogCount={sanitizedSupplierCatalog.length}
+          shippingSaveHintAr={shamousaShippingHint}
+          onClearFilter={() => {
+            setShamousaFilter(null);
+            setShamousaShippingHint(null);
+          }}
+          onSortCheapest={() => {
+            setViewMode('materials');
+            setShamousaFilter((prev) => (prev ? { ...prev, sortBy: 'price_asc' } : prev));
+          }}
+          onOpenShamousa={() => setShamousaOpenSignal((n) => n + 1)}
+        />
 
         {/* Filter & Search Bar */}
         <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 space-y-3">
@@ -1000,11 +1173,41 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                 className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden flex flex-col justify-between"
               >
                 <div>
-                  <img
-                    src={item.images?.[0] || '/alshams_falcon_emblem.png'}
-                    alt={item.name}
-                    className="w-full aspect-[4/3] object-cover border-b border-[#D4CCBC] dark:border-[#22355E]"
-                  />
+                  <div className="relative">
+                    <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleWishlistMaterial(item, supplier)}
+                        aria-label={wishlistIds.has(item.id) ? 'إزالة من المفضلة' : 'أضف للمفضلة'}
+                        title={wishlistIds.has(item.id) ? 'في المفضلة' : 'أضف للمفضلة ❤️'}
+                        className="w-8 h-8 rounded-full bg-[#F7F3EA]/92 dark:bg-[#0C1427]/88 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-xs hover:scale-105 transition cursor-pointer"
+                      >
+                        <Heart
+                          className={`w-4 h-4 ${
+                            wishlistIds.has(item.id) ? 'fill-rose-500 text-rose-500' : 'text-[#334155] dark:text-[#CBD5E1]'
+                          }`}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleCompareMaterial(item, supplier)}
+                        aria-label={compareIds.has(item.id) ? 'إزالة من المقارنة' : 'أضف للمقارنة'}
+                        title={compareIds.has(item.id) ? 'في المقارنة' : 'أضف للمقارنة ⚖️'}
+                        className={`w-8 h-8 rounded-full border flex items-center justify-center shadow-xs hover:scale-105 transition cursor-pointer ${
+                          compareIds.has(item.id)
+                            ? 'bg-[#EA580C] border-[#EA580C] text-white'
+                            : 'bg-[#F7F3EA]/92 dark:bg-[#0C1427]/88 border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
+                        }`}
+                      >
+                        <Scale className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <img
+                      src={item.images?.[0] || '/alshams_falcon_emblem.png'}
+                      alt={item.name}
+                      className="w-full aspect-[4/3] object-cover border-b border-[#D4CCBC] dark:border-[#22355E]"
+                    />
+                  </div>
                   <div className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="text-sm font-black line-clamp-2">{item.name}</h3>
@@ -1452,6 +1655,82 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* درج المفضلة ❤️ لسوق الموردين */}
+      <PublicFavoritesDrawer
+        isOpen={isWishlistOpen}
+        onClose={() => setIsWishlistOpen(false)}
+        items={wishlistItems}
+        onRemove={(id) => setWishlistItems(removeWishlistItem(id))}
+        onMoveToCompare={(wi) => {
+          const match = flatMaterials.find((r) => r.item.id === wi.id);
+          if (match) {
+            handleToggleCompareMaterial(match.item, match.supplier);
+          } else {
+            const res = toggleCompareItem({
+              id: wi.id,
+              scope: 'supplier',
+              name: wi.productName,
+              imageUrl: wi.imageUrl,
+              priceEgp: wi.egpPrice,
+              inStock: true,
+              storeName: wi.artistName || 'مورد الشمساوية',
+              storeId: wi.workshopId,
+            });
+            setCompareItems(res.scopeItems);
+          }
+        }}
+        compareIds={compareIds}
+        formatPrice={(egp) => fmtMarketMoney(egp, 'EGP')}
+        isGuest={!hasAuthSession}
+      />
+
+      {/* شاشة المقارنة المنفصلة ⚖️ + طلب تسعير مجمّع B2B RFQ */}
+      <PublicCompareModal
+        isOpen={isCompareOpen}
+        onClose={() => setIsCompareOpen(false)}
+        scope="supplier"
+        items={compareItems}
+        onRemove={(id) => setCompareItems(removeCompareItem(id, 'supplier'))}
+        onClearAll={() => {
+          clearCompareScope('supplier');
+          setCompareItems([]);
+        }}
+        onAddToCart={(ci) => {
+          for (const ent of entries) {
+            const found = ent.items.find((x) => x.id === ci.id);
+            if (found) {
+              addToB2BCart(found, ent.supplier, found.wholesalePrice > 0 ? found.minWholesaleQty : 1);
+              return;
+            }
+          }
+          showToast('افتح متجر المورد لإتمام إضافة هذه الخامة للسلة.');
+        }}
+        formatPrice={(egp) => fmtMarketMoney(egp, 'EGP')}
+        buyerDefaults={{
+          name: profile?.artistName,
+          workshop: profile?.brandName,
+          governorate: profile?.governorate,
+        }}
+      />
+
+      {/* شموسة الأوفلاين 100% لسوق الموردين */}
+      <ShamousaMarketAssistantWidget
+        mode="suppliers_market"
+        catalog={sanitizedSupplierCatalog}
+        isAuthenticated={hasAuthSession}
+        compareCount={compareItems.length}
+        favoritesCount={wishlistItems.length}
+        activeFilter={shamousaFilter}
+        onApplyFilter={(f, hint) => {
+          setShamousaFilter(f);
+          setShamousaShippingHint(hint || null);
+          if (f) setViewMode('materials');
+        }}
+        onOpenCompare={() => setIsCompareOpen(true)}
+        onOpenFavorites={() => setIsWishlistOpen(true)}
+        externalOpenSignal={shamousaOpenSignal}
+      />
     </div>
   );
 };

@@ -80,8 +80,28 @@ import {
   Clock,
   Sparkles,
   Heart,
+  Scale,
   Trash2,
 } from 'lucide-react';
+import {
+  PublicCompareItem,
+  clearCompareScope,
+  getCompareItemsByScope,
+  removeCompareItem,
+  toggleCompareItem,
+} from '../../services/marketCompareService';
+import {
+  MarketShamousaActiveFilter,
+  sanitizePublicMarketItem,
+} from '../../services/shamousaMarketEngine';
+import {
+  PublicCompareModal,
+  PublicFavoritesDrawer,
+} from './PublicFavoritesCompareModals';
+import {
+  ShamousaActiveFilterBar,
+  ShamousaMarketAssistantWidget,
+} from './ShamousaMarketAssistantWidget';
 
 interface MarketplaceProductRecord extends SavedProductRecord {
   artistName?: string;
@@ -246,8 +266,16 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   const [fxVersion, setFxVersion] = useState<number>(0);
   const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>(() => getWishlistItems());
   const [isWishlistOpen, setIsWishlistOpen] = useState<boolean>(false);
+  const [compareItems, setCompareItems] = useState<PublicCompareItem[]>(() =>
+    getCompareItemsByScope('artisan')
+  );
+  const [isCompareOpen, setIsCompareOpen] = useState<boolean>(false);
+  const [shamousaFilter, setShamousaFilter] = useState<MarketShamousaActiveFilter | null>(null);
+  const [shamousaShippingHint, setShamousaShippingHint] = useState<string | null>(null);
+  const [shamousaOpenSignal, setShamousaOpenSignal] = useState<number>(0);
 
   const wishlistIds = useMemo(() => new Set(wishlistItems.map((i) => i.id)), [wishlistItems]);
+  const compareIds = useMemo(() => new Set(compareItems.map((i) => i.id)), [compareItems]);
 
   useEffect(() => {
     const onCurrUpdate = (e: any) => {
@@ -258,13 +286,16 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       if (Array.isArray(e?.detail)) setWishlistItems(e.detail);
       else setWishlistItems(getWishlistItems());
     };
+    const onCompareUpdate = () => setCompareItems(getCompareItemsByScope('artisan'));
     const onFxBuilderUpdate = () => setFxVersion((v) => v + 1);
     window.addEventListener('alshams_customer_currency_updated', onCurrUpdate);
     window.addEventListener('alshams_wishlist_updated', onWishlistUpdate);
+    window.addEventListener('alshams_compare_updated', onCompareUpdate);
     window.addEventListener('alshams_market_builder_updated', onFxBuilderUpdate);
     return () => {
       window.removeEventListener('alshams_customer_currency_updated', onCurrUpdate);
       window.removeEventListener('alshams_wishlist_updated', onWishlistUpdate);
+      window.removeEventListener('alshams_compare_updated', onCompareUpdate);
       window.removeEventListener('alshams_market_builder_updated', onFxBuilderUpdate);
     };
   }, []);
@@ -539,9 +570,36 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     };
   }, [profile]);
 
+  const sanitizedShamousaCatalog = useMemo(
+    () =>
+      products.map((p) => {
+        const pr = resolveProductOfferPricing(p, p.sizeVariants?.[0]?.label, 'EGP', true);
+        return sanitizePublicMarketItem({
+          id: p.id,
+          name: p.productName,
+          description: p.storeDescription,
+          craftOrCategory: p.craftName || p.category || p.decorCategory,
+          priceEgp: pr.egpFinalPrice,
+          inStock: (p.currentStock || 0) > 0,
+          colors: p.availableColors,
+          sizes: p.sizeVariants?.map((s) => s.label) || p.availableSizes,
+          storeName: p.brandName || p.artistName || 'الشمساوية',
+          storeSlug: p.storeSlug,
+          storeId: p.workshopId,
+          imageUrl: p.imageUrl || undefined,
+          isFreeShipping: pr.isFreeShipping,
+          hasDiscount: pr.hasDiscount,
+        });
+      }),
+    [products]
+  );
+
   // Filtered & Sorted Products
   const filteredProducts = useMemo(() => {
+    const shamousaIdSet = shamousaFilter ? new Set(shamousaFilter.matchedIds) : null;
     const filtered = products.filter((p) => {
+      if (shamousaIdSet && !shamousaIdSet.has(p.id)) return false;
+
       // 1. Search Query (Super Admin can also search by brand/artist; shoppers search products & crafts)
       const q = searchQuery.toLowerCase().trim();
       const transText = (p as any).translations
@@ -595,24 +653,26 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       return matchSearch && matchDecor && matchTaxonomy;
     });
 
-    if (sortBy === 'price_asc') {
+    const activeSort = shamousaFilter?.sortBy || sortBy;
+    if (activeSort === 'price_asc') {
       return [...filtered].sort(
         (a, b) => (a.storePrice || a.retailPrice || 0) - (b.storePrice || b.retailPrice || 0)
       );
     }
-    if (sortBy === 'price_desc') {
+    if (activeSort === 'price_desc') {
       return [...filtered].sort(
         (a, b) => (b.storePrice || b.retailPrice || 0) - (a.storePrice || a.retailPrice || 0)
       );
     }
     return filtered;
-  }, [products, searchQuery, selectedDecorCategory, selectedMainSections, selectedSubCrafts, sortBy, isSuperAdmin]);
+  }, [products, searchQuery, selectedDecorCategory, selectedMainSections, selectedSubCrafts, sortBy, isSuperAdmin, shamousaFilter]);
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
     selectedDecorCategory !== 'all' ||
     selectedMainSections.length > 0 ||
-    selectedSubCrafts.length > 0;
+    selectedSubCrafts.length > 0 ||
+    shamousaFilter !== null;
 
   const resetAllFilters = () => {
     setSearchQuery('');
@@ -620,7 +680,39 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     setSelectedMainSections([]);
     setSelectedSubCrafts([]);
     setSortBy('featured');
+    setShamousaFilter(null);
+    setShamousaShippingHint(null);
     setOpenDropdown(null);
+  };
+
+  const handleToggleCompareMarket = (
+    p: MarketplaceProductRecord,
+    egpPrice: number,
+    isFreeShipping?: boolean
+  ) => {
+    const res = toggleCompareItem({
+      id: p.id,
+      scope: 'artisan',
+      name: p.productName,
+      imageUrl: p.imageUrl || '/alshams_falcon_emblem.png',
+      priceEgp: egpPrice,
+      craftOrCategory: p.craftName || p.category,
+      sizeLabel: p.sizeVariants?.[0]?.label || p.availableSizes?.[0],
+      inStock: (p.currentStock || 0) > 0,
+      storeName: p.brandName || p.artistName || 'الشمساوية',
+      storeSlug: p.storeSlug,
+      storeId: p.workshopId,
+      isFreeShipping,
+    });
+    setCompareItems(res.scopeItems);
+    if (res.limitReached) {
+      playAlertSound();
+      setFeedback('وصلت للحد الأقصى للمقارنة (12 منتج) — افتح المقارنة ⚖️ لتصفيتها.');
+    } else {
+      playSuccessSound();
+      setFeedback(res.added ? `تمت إضافة "${p.productName}" إلى المقارنة ⚖️` : `تمت إزالة "${p.productName}" من المقارنة`);
+    }
+    setTimeout(() => setFeedback(''), 2600);
   };
 
   // Open Product Modal
@@ -816,22 +908,40 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 {displayBadge}
               </span>
             )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleToggleWishlistMarket(p, pricing.egpFinalPrice, pricing.isFreeShipping);
-              }}
-              aria-label={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
-              title={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'أضف للمفضلة'}
-              className="absolute top-2 left-2 z-10 w-8 h-8 rounded-full bg-[#F7F3EA]/90 dark:bg-[#0C1427]/85 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-xs hover:scale-105 active:scale-95 transition cursor-pointer"
-            >
-              <Heart
-                className={`w-4 h-4 transition ${
-                  wishlistIds.has(p.id) ? 'fill-rose-500 text-rose-500' : 'text-[#334155] dark:text-[#CBD5E1]'
+            <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleWishlistMarket(p, pricing.egpFinalPrice, pricing.isFreeShipping);
+                }}
+                aria-label={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+                title={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'أضف للمفضلة'}
+                className="w-8 h-8 rounded-full bg-[#F7F3EA]/92 dark:bg-[#0C1427]/88 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-xs hover:scale-105 active:scale-95 transition cursor-pointer"
+              >
+                <Heart
+                  className={`w-4 h-4 transition ${
+                    wishlistIds.has(p.id) ? 'fill-rose-500 text-rose-500' : 'text-[#334155] dark:text-[#CBD5E1]'
+                  }`}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleCompareMarket(p, pricing.egpFinalPrice, pricing.isFreeShipping);
+                }}
+                aria-label={compareIds.has(p.id) ? 'إزالة من المقارنة' : 'أضف للمقارنة'}
+                title={compareIds.has(p.id) ? 'في قائمة المقارنة (اضغط للإزالة)' : 'أضف للمقارنة ⚖️'}
+                className={`w-8 h-8 rounded-full border flex items-center justify-center shadow-xs hover:scale-105 active:scale-95 transition cursor-pointer ${
+                  compareIds.has(p.id)
+                    ? 'bg-[#EA580C] border-[#EA580C] text-white'
+                    : 'bg-[#F7F3EA]/92 dark:bg-[#0C1427]/88 border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
                 }`}
-              />
-            </button>
+              >
+                <Scale className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <img
               src={p.imageUrl || '/alshams_falcon_emblem.png'}
               alt={p.productName}
@@ -1168,6 +1278,21 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               {wishlistItems.length > 0 && (
                 <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[10px] font-black flex items-center justify-center">
                   {wishlistItems.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsCompareOpen(true)}
+              className="relative px-2.5 sm:px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+              title="المقارنة المنفصلة عن السلة"
+            >
+              <Scale className={`w-4 h-4 ${compareItems.length > 0 ? 'text-[#EA580C] dark:text-[#FBBF24]' : 'text-[#C2410C] dark:text-[#FBBF24]'}`} />
+              <span className="hidden lg:inline">{locale === 'ar' ? 'المقارنة' : 'Compare'}</span>
+              {compareItems.length > 0 && (
+                <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-[#EA580C] text-white font-mono tabular-nums text-[10px] font-black flex items-center justify-center">
+                  {compareItems.length}
                 </span>
               )}
             </button>
@@ -1624,7 +1749,18 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               )}
 
               {/* 4. Global E-Commerce Product Grid */}
-              <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-2">
+              <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-2 space-y-3">
+                <ShamousaActiveFilterBar
+                  activeFilter={shamousaFilter}
+                  totalCatalogCount={products.length}
+                  shippingSaveHintAr={shamousaShippingHint}
+                  onClearFilter={() => {
+                    setShamousaFilter(null);
+                    setShamousaShippingHint(null);
+                  }}
+                  onSortCheapest={() => setSortBy('price_asc')}
+                  onOpenShamousa={() => setShamousaOpenSignal((n) => n + 1)}
+                />
                 {loading ? (
                   <div className={getGridColsClass(builderConfig.defaultDesktopCols, builderConfig.defaultMobileCols)}>
                     {Array.from({ length: 8 }).map((_, i) => (
@@ -2169,103 +2305,117 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         </div>
       </footer>
 
-      {/* Wishlist Drawer Modal */}
-      {isWishlistOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-xs"
-          dir="rtl"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsWishlistOpen(false);
-          }}
-        >
-          <div className="w-full max-w-lg rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl overflow-hidden text-right flex flex-col max-h-[84vh]">
-            <div className="px-5 py-3.5 bg-[#E9E2D4] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Heart className="w-4 h-4 fill-rose-500 text-rose-500" />
-                <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                  قائمة المفضلة ({wishlistItems.length})
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsWishlistOpen(false)}
-                className="w-8 h-8 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* درج المفضلة ❤️ (مع مشاركة واتساب وفيسبوك + نقل للمقارنة + وفّر شحن) */}
+      <PublicFavoritesDrawer
+        isOpen={isWishlistOpen}
+        onClose={() => setIsWishlistOpen(false)}
+        items={wishlistItems}
+        onRemove={(id) => setWishlistItems(removeWishlistItem(id))}
+        onSelectProduct={(id) => {
+          const found = products.find((x) => x.id === id);
+          if (found) {
+            setIsWishlistOpen(false);
+            handleOpenProductDetails(found);
+          }
+        }}
+        onMoveToCompare={(wi) => {
+          const found = products.find((x) => x.id === wi.id);
+          if (found) {
+            handleToggleCompareMarket(found, wi.egpPrice, wi.isFreeShipping);
+          } else {
+            const res = toggleCompareItem({
+              id: wi.id,
+              scope: 'artisan',
+              name: wi.productName,
+              imageUrl: wi.imageUrl,
+              priceEgp: wi.egpPrice,
+              craftOrCategory: wi.craftName,
+              inStock: true,
+              storeName: wi.artistName || 'الشمساوية',
+              storeId: wi.workshopId,
+              isFreeShipping: wi.isFreeShipping,
+            });
+            setCompareItems(res.scopeItems);
+          }
+        }}
+        compareIds={compareIds}
+        formatPrice={(egp) => {
+          const v = convertBetweenCurrencies(egp, 'EGP', customerCurrency);
+          const c = getCurrencyInfo(customerCurrency);
+          return `${Math.round(v).toLocaleString('ar-EG')} ${c.symbol}`;
+        }}
+        isGuest={!profile && !customerUser}
+        onOpenRegister={() => {
+          setIsWishlistOpen(false);
+          setIsCustomerAuthOpen(true);
+        }}
+      />
 
-            <div className="p-4 overflow-y-auto space-y-2.5 flex-1">
-              {wishlistItems.length === 0 ? (
-                <div className="py-10 text-center space-y-2 text-xs text-[#475569] dark:text-[#94A3B8]">
-                  <Heart className="w-8 h-8 mx-auto opacity-50 text-rose-500" />
-                  <p className="font-bold">لم تقم بحفظ أي مشغولات في المفضلة بعد.</p>
-                </div>
-              ) : (
-                wishlistItems.map((wi) => {
-                  const displayPrice = convertBetweenCurrencies(wi.egpPrice, 'EGP', customerCurrency);
-                  const displayCurr = getCurrencyInfo(customerCurrency);
-                  return (
-                    <div
-                      key={wi.id}
-                      className="p-2.5 rounded-xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2.5 text-xs"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <img
-                          src={wi.imageUrl || '/alshams_falcon_emblem.png'}
-                          alt={wi.productName}
-                          className="w-12 h-12 rounded-lg object-cover bg-[#E9E2D4] shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <h4 className="font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
-                            {wi.productName}
-                          </h4>
-                          <p className="font-mono font-bold text-[#C2410C] dark:text-[#FBBF24]">
-                            {displayPrice.toLocaleString('ar-EG')} {displayCurr.symbol}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            addToCart({
-                              id: 'cart_' + Date.now(),
-                              productId: wi.id,
-                              productName: wi.productName,
-                              price: wi.egpPrice,
-                              quantity: 1,
-                              imageUrl: wi.imageUrl || '',
-                              craftName: wi.craftName,
-                              workshopId: wi.workshopId || 'central',
-                              artistName: wi.artistName || 'فنان الشمساوية',
-                              isFreeShipping: wi.isFreeShipping,
-                            });
-                            playSuccessSound();
-                            setFeedback(`تمت إضافة "${wi.productName}" إلى السلة`);
-                            setTimeout(() => setFeedback(''), 2600);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white font-black text-[11px] cursor-pointer"
-                        >
-                          أضف للسلة
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setWishlistItems(removeWishlistItem(wi.id))}
-                          className="p-1.5 rounded-lg bg-[#E9E2D4] dark:bg-[#0D162E] text-rose-600 hover:bg-rose-50 cursor-pointer"
-                          title="إزالة"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* شاشة المقارنة المنفصلة ⚖️ عن السلة */}
+      <PublicCompareModal
+        isOpen={isCompareOpen}
+        onClose={() => setIsCompareOpen(false)}
+        scope="artisan"
+        items={compareItems}
+        onRemove={(id) => setCompareItems(removeCompareItem(id, 'artisan'))}
+        onClearAll={() => {
+          clearCompareScope('artisan');
+          setCompareItems([]);
+        }}
+        onSelectProduct={(id) => {
+          const found = products.find((x) => x.id === id);
+          if (found) {
+            setIsCompareOpen(false);
+            handleOpenProductDetails(found);
+          }
+        }}
+        onAddToCart={(ci) => {
+          const found = products.find((x) => x.id === ci.id);
+          if (found) {
+            handleAddToCart(found, 1);
+          } else {
+            addToCart({
+              id: 'cart_' + Date.now(),
+              productId: ci.id,
+              productName: ci.name,
+              price: ci.priceEgp,
+              quantity: 1,
+              imageUrl: ci.imageUrl || '',
+              craftName: ci.craftOrCategory,
+              workshopId: ci.storeId || 'central',
+              artistName: ci.storeName || 'فنان الشمساوية',
+              isFreeShipping: ci.isFreeShipping,
+            });
+            playSuccessSound();
+            setFeedback(`تمت إضافة "${ci.name}" إلى السلة`);
+            setTimeout(() => setFeedback(''), 2600);
+          }
+        }}
+        formatPrice={(egp) => {
+          const v = convertBetweenCurrencies(egp, 'EGP', customerCurrency);
+          const c = getCurrencyInfo(customerCurrency);
+          return `${Math.round(v).toLocaleString('ar-EG')} ${c.symbol}`;
+        }}
+      />
+
+      {/* ويدجت شموسة الأوفلاين 100% لسوق الشمسية (تفلتر الشبكة + هدية سريعة + Lead Magnet) */}
+      <ShamousaMarketAssistantWidget
+        mode="alshams_market"
+        catalog={sanitizedShamousaCatalog}
+        isAuthenticated={Boolean(profile || customerUser)}
+        compareCount={compareItems.length}
+        favoritesCount={wishlistItems.length}
+        activeFilter={shamousaFilter}
+        onApplyFilter={(f, hint) => {
+          setShamousaFilter(f);
+          setShamousaShippingHint(hint || null);
+          if (f) scrollToCatalog();
+        }}
+        onOpenCompare={() => setIsCompareOpen(true)}
+        onOpenFavorites={() => setIsWishlistOpen(true)}
+        onOpenRegister={() => setIsCustomerAuthOpen(true)}
+        externalOpenSignal={shamousaOpenSignal}
+      />
 
       {/* Optional Floating WhatsApp Support Button */}
       {builderConfig.whatsappSupport?.enabled && (

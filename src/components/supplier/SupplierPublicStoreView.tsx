@@ -14,9 +14,36 @@ import {
   X,
   Plus,
   Flame,
+  Heart,
+  Scale,
   Tag,
   Ticket,
 } from 'lucide-react';
+import {
+  WishlistItem,
+  getWishlistItems,
+  removeWishlistItem,
+  toggleWishlistItem,
+} from '../../services/wishlistService';
+import {
+  PublicCompareItem,
+  clearCompareScope,
+  getCompareItemsByScope,
+  removeCompareItem,
+  toggleCompareItem,
+} from '../../services/marketCompareService';
+import {
+  MarketShamousaActiveFilter,
+  sanitizePublicMarketItem,
+} from '../../services/shamousaMarketEngine';
+import {
+  PublicCompareModal,
+  PublicFavoritesDrawer,
+} from '../marketplace/PublicFavoritesCompareModals';
+import {
+  ShamousaActiveFilterBar,
+  ShamousaMarketAssistantWidget,
+} from '../marketplace/ShamousaMarketAssistantWidget';
 import { UserProfile } from '../../types';
 import {
   SUPPLIER_SUPPLY_SECTIONS,
@@ -199,14 +226,37 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
   const [displayCurrency, setDisplayCurrency] = useState<string>(() =>
     getStoredCustomerDisplayCurrency()
   );
+  const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>(() => getWishlistItems());
+  const [isWishlistOpen, setIsWishlistOpen] = useState<boolean>(false);
+  const [compareItems, setCompareItems] = useState<PublicCompareItem[]>(() =>
+    getCompareItemsByScope('supplier')
+  );
+  const [isCompareOpen, setIsCompareOpen] = useState<boolean>(false);
+  const [shamousaFilter, setShamousaFilter] = useState<MarketShamousaActiveFilter | null>(null);
+  const [shamousaShippingHint, setShamousaShippingHint] = useState<string | null>(null);
+  const [shamousaOpenSignal, setShamousaOpenSignal] = useState<number>(0);
+
+  const wishlistIds = useMemo(() => new Set(wishlistItems.map((i) => i.id)), [wishlistItems]);
+  const compareIds = useMemo(() => new Set(compareItems.map((i) => i.id)), [compareItems]);
 
   useEffect(() => {
     const onCurr = (e: any) => {
       if (e?.detail) setDisplayCurrency(String(e.detail));
       else setDisplayCurrency(getStoredCustomerDisplayCurrency());
     };
+    const onWishlistUpdate = (e: any) => {
+      if (Array.isArray(e?.detail)) setWishlistItems(e.detail);
+      else setWishlistItems(getWishlistItems());
+    };
+    const onCompareUpdate = () => setCompareItems(getCompareItemsByScope('supplier'));
     window.addEventListener('alshams_customer_currency_updated', onCurr);
-    return () => window.removeEventListener('alshams_customer_currency_updated', onCurr);
+    window.addEventListener('alshams_wishlist_updated', onWishlistUpdate);
+    window.addEventListener('alshams_compare_updated', onCompareUpdate);
+    return () => {
+      window.removeEventListener('alshams_customer_currency_updated', onCurr);
+      window.removeEventListener('alshams_wishlist_updated', onWishlistUpdate);
+      window.removeEventListener('alshams_compare_updated', onCompareUpdate);
+    };
   }, []);
 
   const hasAuthSession = Boolean(profile && profile.id);
@@ -316,11 +366,37 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
     return { specialOfferItems: offers, bestSellerItems: bests };
   }, [orderedItems]);
 
+  const sanitizedSupplierStoreCatalog = useMemo(() => {
+    const sup = localSupplierOverride
+      ? ({ ...(supplier || {}), ...localSupplierOverride } as SupplierProfile)
+      : supplier;
+    return orderedItems.map((i) => {
+      const sec = SUPPLIER_SUPPLY_SECTIONS.find((s) => s.id === i.sectionId);
+      return sanitizePublicMarketItem({
+        id: i.id,
+        name: i.name,
+        description: i.description,
+        craftOrCategory: sec?.titleAr || i.sectionId,
+        priceEgp: Number(i.retailPrice || 0),
+        wholesalePriceEgp: i.wholesalePrice > 0 ? Number(i.wholesalePrice) : undefined,
+        minWholesaleQty: i.minWholesaleQty,
+        unitLabel: i.unit,
+        inStock: (i.stockQty ?? 0) > 0,
+        storeName: sup?.brandName || 'متجر المورد',
+        storeSlug: sup?.storeSlug || slug,
+        storeId: sup?.id,
+        imageUrl: i.images?.[0],
+      });
+    });
+  }, [orderedItems, supplier, localSupplierOverride, slug]);
+
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const offerSet = new Set(specialOfferItems.map((i) => i.id));
     const bestSet = new Set(bestSellerItems.map((i) => i.id));
-    return orderedItems.filter((i) => {
+    const shamousaIdSet = shamousaFilter ? new Set(shamousaFilter.matchedIds) : null;
+    const list = orderedItems.filter((i) => {
+      if (shamousaIdSet && !shamousaIdSet.has(i.id)) return false;
       const matchFilter =
         catalogFilter === 'all' ||
         (catalogFilter === 'offers' && offerSet.has(i.id)) ||
@@ -340,7 +416,14 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         transText.includes(q)
       );
     });
-  }, [orderedItems, searchQuery, catalogFilter, specialOfferItems, bestSellerItems]);
+    if (shamousaFilter?.sortBy === 'price_asc') {
+      return [...list].sort((a, b) => Number(a.retailPrice || 0) - Number(b.retailPrice || 0));
+    }
+    if (shamousaFilter?.sortBy === 'price_desc') {
+      return [...list].sort((a, b) => Number(b.retailPrice || 0) - Number(a.retailPrice || 0));
+    }
+    return list;
+  }, [orderedItems, searchQuery, catalogFilter, specialOfferItems, bestSellerItems, shamousaFilter]);
 
   const addToCart = (item: SupplierCatalogItem, qty = 1) => {
     playButtonClickSound();
@@ -769,6 +852,41 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 <Share2 className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
               )}
               <span className="hidden sm:inline">{copied ? t('copied') : t('share')}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsWishlistOpen(true)}
+              style={softBtnStyle}
+              className={`relative w-8 h-8 sm:w-auto sm:h-9 sm:px-3 ${themeSpec.buttonRadiusClass} border text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shrink-0`}
+              title={t('wishlist')}
+            >
+              <Heart
+                className={`w-3.5 h-3.5 ${wishlistItems.length > 0 ? 'fill-rose-500 text-rose-500' : ''}`}
+                style={wishlistItems.length === 0 ? { color: themeSpec.accentText } : undefined}
+              />
+              <span className="hidden lg:inline">{t('wishlist')}</span>
+              {wishlistItems.length > 0 && (
+                <span className="min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white font-mono text-[9px] font-black flex items-center justify-center">
+                  {wishlistItems.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsCompareOpen(true)}
+              style={softBtnStyle}
+              className={`relative w-8 h-8 sm:w-auto sm:h-9 sm:px-3 ${themeSpec.buttonRadiusClass} border text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shrink-0`}
+              title="المقارنة المنفصلة + طلب تسعير B2B"
+            >
+              <Scale className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+              <span className="hidden lg:inline">{locale === 'ar' ? 'المقارنة' : 'Compare'}</span>
+              {compareItems.length > 0 && (
+                <span className="min-w-4 h-4 px-1 rounded-full bg-[#EA580C] text-white font-mono text-[9px] font-black flex items-center justify-center">
+                  {compareItems.length}
+                </span>
+              )}
             </button>
 
             <button
@@ -1282,6 +1400,22 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               </div>
             )}
 
+          <div className="mb-3">
+            <ShamousaActiveFilterBar
+              activeFilter={shamousaFilter}
+              totalCatalogCount={orderedItems.length}
+              shippingSaveHintAr={shamousaShippingHint}
+              onClearFilter={() => {
+                setShamousaFilter(null);
+                setShamousaShippingHint(null);
+              }}
+              onSortCheapest={() =>
+                setShamousaFilter((prev) => (prev ? { ...prev, sortBy: 'price_asc' } : prev))
+              }
+              onOpenShamousa={() => setShamousaOpenSignal((n) => n + 1)}
+            />
+          </div>
+
           <div
             className={`grid gap-4 ${
               themeSpec.cardLayout === 'horizontal_split'
@@ -1334,6 +1468,79 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                           {offerMeta.badgeText}
                         </span>
                       )}
+                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const res = toggleWishlistItem({
+                              id: it.id,
+                              productName: it.name,
+                              imageUrl: it.images?.[0] || '/alshams_falcon_emblem.png',
+                              egpPrice: Number(offerMeta.finalRetail || it.retailPrice || 0),
+                              craftName: it.unit ? `خامة (${it.unit})` : 'خامة',
+                              workshopId: activeSupplier.id,
+                              artistName: activeSupplier.brandName,
+                            });
+                            setWishlistItems(res.items);
+                            playButtonClickSound();
+                            setToast(res.added ? `تم حفظ "${it.name}" في المفضلة ❤️` : `تمت إزالة "${it.name}" من المفضلة`);
+                            setTimeout(() => setToast(null), 2200);
+                          }}
+                          aria-label={wishlistIds.has(it.id) ? 'إزالة من المفضلة' : 'أضف للمفضلة'}
+                          title={wishlistIds.has(it.id) ? 'في المفضلة' : 'أضف للمفضلة ❤️'}
+                          style={{ backgroundColor: themeSpec.surfaceBg, borderColor: themeSpec.borderColor }}
+                          className="w-8 h-8 rounded-full border flex items-center justify-center shadow-xs hover:scale-105 transition cursor-pointer"
+                        >
+                          <Heart
+                            className={`w-4 h-4 ${wishlistIds.has(it.id) ? 'fill-rose-500 text-rose-500' : ''}`}
+                            style={!wishlistIds.has(it.id) ? { color: themeSpec.mutedColor } : undefined}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const res = toggleCompareItem({
+                              id: it.id,
+                              scope: 'supplier',
+                              name: it.name,
+                              imageUrl: it.images?.[0] || '/alshams_falcon_emblem.png',
+                              priceEgp: Number(offerMeta.finalRetail || it.retailPrice || 0),
+                              wholesalePriceEgp: it.wholesalePrice > 0 ? Number(it.wholesalePrice) : undefined,
+                              minWholesaleQty: it.minWholesaleQty,
+                              unitLabel: it.unit,
+                              inStock: (it.stockQty ?? 0) > 0,
+                              storeName: activeSupplier.brandName,
+                              storeSlug: activeSupplier.storeSlug || slug,
+                              storeId: activeSupplier.id,
+                              publicWhatsapp: activeSupplier.phone || '',
+                            });
+                            setCompareItems(res.scopeItems);
+                            playButtonClickSound();
+                            setToast(
+                              res.limitReached
+                                ? 'وصلت للحد الأقصى للمقارنة (12 خامة)'
+                                : res.added
+                                ? `تمت إضافة "${it.name}" للمقارنة ⚖️`
+                                : `تمت إزالة "${it.name}" من المقارنة`
+                            );
+                            setTimeout(() => setToast(null), 2400);
+                          }}
+                          aria-label={compareIds.has(it.id) ? 'إزالة من المقارنة' : 'أضف للمقارنة'}
+                          title={compareIds.has(it.id) ? 'في المقارنة' : 'أضف للمقارنة ⚖️'}
+                          style={
+                            !compareIds.has(it.id)
+                              ? { backgroundColor: themeSpec.surfaceBg, borderColor: themeSpec.borderColor, color: themeSpec.mutedColor }
+                              : undefined
+                          }
+                          className={`w-8 h-8 rounded-full border flex items-center justify-center shadow-xs hover:scale-105 transition cursor-pointer ${
+                            compareIds.has(it.id) ? 'bg-[#EA580C] border-[#EA580C] text-white' : ''
+                          }`}
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                       {offerMeta.isBestSeller && (
                         <span className="absolute bottom-2 left-2 z-10 px-2 py-0.5 rounded-md bg-amber-400/95 text-slate-950 text-[9px] font-black shadow-xs flex items-center gap-0.5">
                           <Star className="w-2.5 h-2.5 fill-slate-950" />
@@ -1805,6 +2012,96 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
           currentUserProfile={profile || null}
           onClose={() => setIsProfileModalOpen(false)}
           onOpenStore={() => setIsProfileModalOpen(false)}
+        />
+      )}
+
+      {/* درج المفضلة ❤️ لمتجر المورد الخاص */}
+      <PublicFavoritesDrawer
+        isOpen={isWishlistOpen}
+        onClose={() => setIsWishlistOpen(false)}
+        items={wishlistItems}
+        onRemove={(id) => setWishlistItems(removeWishlistItem(id))}
+        onSelectProduct={(id) => {
+          const found = orderedItems.find((x) => x.id === id);
+          if (found) {
+            setIsWishlistOpen(false);
+            setSelectedItem(found);
+          }
+        }}
+        onMoveToCompare={(wi) => {
+          const found = orderedItems.find((x) => x.id === wi.id);
+          const res = toggleCompareItem({
+            id: wi.id,
+            scope: 'supplier',
+            name: wi.productName,
+            imageUrl: wi.imageUrl,
+            priceEgp: wi.egpPrice,
+            wholesalePriceEgp: found && found.wholesalePrice > 0 ? found.wholesalePrice : undefined,
+            minWholesaleQty: found?.minWholesaleQty,
+            unitLabel: found?.unit,
+            inStock: found ? (found.stockQty ?? 0) > 0 : true,
+            storeName: activeSupplier.brandName,
+            storeSlug: activeSupplier.storeSlug || slug,
+            storeId: activeSupplier.id,
+            publicWhatsapp: activeSupplier.phone || '',
+          });
+          setCompareItems(res.scopeItems);
+        }}
+        compareIds={compareIds}
+        formatPrice={(egp) => fmtMoney(egp)}
+        isGuest={!hasAuthSession}
+      />
+
+      {/* شاشة المقارنة المنفصلة ⚖️ + طلب تسعير B2B RFQ */}
+      <PublicCompareModal
+        isOpen={isCompareOpen}
+        onClose={() => setIsCompareOpen(false)}
+        scope="supplier"
+        items={compareItems}
+        onRemove={(id) => setCompareItems(removeCompareItem(id, 'supplier'))}
+        onClearAll={() => {
+          clearCompareScope('supplier');
+          setCompareItems([]);
+        }}
+        onSelectProduct={(id) => {
+          const found = orderedItems.find((x) => x.id === id);
+          if (found) {
+            setIsCompareOpen(false);
+            setSelectedItem(found);
+          }
+        }}
+        onAddToCart={(ci) => {
+          const found = orderedItems.find((x) => x.id === ci.id);
+          if (found) {
+            addToCart(found, found.wholesalePrice > 0 ? found.minWholesaleQty : 1);
+          }
+        }}
+        formatPrice={(egp) => fmtMoney(egp)}
+        buyerDefaults={{
+          name: profile?.artistName,
+          workshop: profile?.brandName,
+          governorate: profile?.governorate,
+        }}
+      />
+
+      {/* شموسة الأوفلاين 100% لمتجر المورد الخاص */}
+      {!isOwnerPreview && (
+        <ShamousaMarketAssistantWidget
+          mode="supplier_storefront"
+          catalog={sanitizedSupplierStoreCatalog}
+          storeName={activeSupplier.brandName}
+          isAuthenticated={hasAuthSession}
+          compareCount={compareItems.length}
+          favoritesCount={wishlistItems.length}
+          activeFilter={shamousaFilter}
+          onApplyFilter={(f, hint) => {
+            setShamousaFilter(f);
+            setShamousaShippingHint(hint || null);
+            if (f) setActiveTab('catalog');
+          }}
+          onOpenCompare={() => setIsCompareOpen(true)}
+          onOpenFavorites={() => setIsWishlistOpen(true)}
+          externalOpenSignal={shamousaOpenSignal}
         />
       )}
     </div>

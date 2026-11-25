@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
+  BellRing,
   Brain,
+  CheckCheck,
   CheckCircle2,
   Download,
   GitMerge,
@@ -16,6 +18,11 @@ import {
   X,
 } from 'lucide-react';
 import { authedFetch } from '../../lib/apiClient';
+import {
+  loadLandingVisitorSuggestions,
+  markAllLandingSuggestionsReadLocal,
+  type LandingVisitorSuggestionRecord,
+} from '../../services/shamousaLandingEngine';
 import {
   DEFAULT_SAFETY_WARNING_AR,
   detectSafetySensitiveTopic,
@@ -56,10 +63,13 @@ export const AdminShamousaIssuesPage: React.FC<AdminShamousaIssuesPageProps> = (
   onNotifyError,
 }) => {
   const [store, setStore] = useState<KnowledgeStoreState>(() => loadKnowledgeStoreState());
-  const [activeTab, setActiveTab] = useState<'queue' | 'knowledge' | 'snapshots'>('queue');
+  const [activeTab, setActiveTab] = useState<'queue' | 'knowledge' | 'snapshots' | 'landing_suggestions'>('queue');
   const [loading, setLoading] = useState(false);
   const [storageMode, setStorageMode] = useState<'supabase' | 'local'>('local');
   const [draftLoadingId, setDraftLoadingId] = useState<string | null>(null);
+  const [landingSuggestions, setLandingSuggestions] = useState<LandingVisitorSuggestionRecord[]>(() =>
+    loadLandingVisitorSuggestions()
+  );
 
   // نموذج "اكتب الإجابة" / "إضافة موضوع جديد"
   const [editorOpen, setEditorOpen] = useState(false);
@@ -93,8 +103,28 @@ export const AdminShamousaIssuesPage: React.FC<AdminShamousaIssuesPageProps> = (
         }
         if (data?.storage === 'supabase') setStorageMode('supabase');
       }
+      const sugRes = await authedFetch('/api/admin/shamousa/landing-suggestions');
+      const localSugs = loadLandingVisitorSuggestions();
+      if (sugRes.ok) {
+        const sugData = await sugRes.json();
+        const serverSugs: LandingVisitorSuggestionRecord[] = Array.isArray(sugData?.suggestions)
+          ? sugData.suggestions
+          : [];
+        const byKey = new Map<string, LandingVisitorSuggestionRecord>();
+        for (const s of [...serverSugs, ...localSugs]) {
+          const dedupKey = `${s.id || ''}|${(s.suggestionText || '').trim()}`;
+          if (!byKey.has(dedupKey)) byKey.set(dedupKey, s);
+        }
+        setLandingSuggestions(
+          Array.from(byKey.values()).sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )
+        );
+      } else {
+        setLandingSuggestions(localSugs);
+      }
     } catch {
-      // يعمل محلياً أوفلاين بدون أي توقف
+      setLandingSuggestions(loadLandingVisitorSuggestions());
     } finally {
       setLoading(false);
     }
@@ -138,6 +168,24 @@ export const AdminShamousaIssuesPage: React.FC<AdminShamousaIssuesPageProps> = (
     () => (store.entries || []).filter((e) => e.status === 'approved'),
     [store.entries]
   );
+
+  const unreadSuggestionsCount = useMemo(
+    () => landingSuggestions.filter((s) => !s.readByAdmin).length,
+    [landingSuggestions]
+  );
+
+  const handleMarkAllSuggestionsRead = async () => {
+    markAllLandingSuggestionsReadLocal();
+    setLandingSuggestions((prev) => prev.map((s) => ({ ...s, readByAdmin: true })));
+    try {
+      await authedFetch('/api/admin/shamousa/landing-suggestions/mark-read', {
+        method: 'POST',
+      });
+    } catch {
+      // محفوظ محلياً
+    }
+    onNotifySuccess('✅ تم تحديد كل مقترحات زوار صفحة الهبوط كمقروءة.');
+  };
 
   const openEditorForQueueItem = (item: GlobalUnansweredQueueItem) => {
     setEditingQueueItem(item);
@@ -475,6 +523,23 @@ export const AdminShamousaIssuesPage: React.FC<AdminShamousaIssuesPageProps> = (
           <History className="w-3.5 h-3.5" />
           <span>النسخ السابقة للرجوع ({(store.snapshots || []).length})</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('landing_suggestions')}
+          className={`px-4 py-2 rounded-xl text-xs font-black cursor-pointer transition flex items-center gap-1.5 ${
+            activeTab === 'landing_suggestions'
+              ? 'bg-[#142A5C] text-white'
+              : 'bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#CBD5E1]'
+          }`}
+        >
+          <BellRing className="w-3.5 h-3.5" />
+          <span>مقترحات زوار صفحة الهبوط ({landingSuggestions.length})</span>
+          {unreadSuggestionsCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black leading-none">
+              {unreadSuggestionsCount} جديد
+            </span>
+          )}
+        </button>
       </div>
 
       {/* تبويب 1: طابور الأسئلة مرتب بالتكرار مع الأزرار الأربعة */}
@@ -672,6 +737,79 @@ export const AdminShamousaIssuesPage: React.FC<AdminShamousaIssuesPageProps> = (
                 >
                   ⏪ استرجاع هذه النسخة
                 </button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* تبويب 4: مقترحات زوار صفحة الهبوط من شموسة */}
+      {activeTab === 'landing_suggestions' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-3.5">
+            <div>
+              <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                مقترحات وأفكار زوار صفحة الهبوط الواردة من شموسة
+              </h3>
+              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                عندما يسأل زائر عن ميزة أو فكرة غير موجودة بعد في المنظومة، تجمع شموسة مقترحه وتُرسله هنا مباشرة.
+              </p>
+            </div>
+            {unreadSuggestionsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => void handleMarkAllSuggestionsRead()}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>تحديد الكل كمقروء ({unreadSuggestionsCount})</span>
+              </button>
+            )}
+          </div>
+
+          {landingSuggestions.length === 0 ? (
+            <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-8 text-center space-y-1.5">
+              <BellRing className="w-7 h-7 text-amber-600 mx-auto" />
+              <p className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                لا توجد مقترحات جديدة من زوار صفحة الهبوط حتى الآن
+              </p>
+              <p className="text-xs text-[#64748B]">
+                أي فكرة أو ميزة جديدة يقترحها زائر على شموسة صفحة الهبوط ستظهر هنا فوراً بإشعار جديد.
+              </p>
+            </div>
+          ) : (
+            landingSuggestions.map((sug) => (
+              <div
+                key={sug.id}
+                className={`rounded-2xl border p-4 space-y-2 ${
+                  !sug.readByAdmin
+                    ? 'bg-amber-50/70 dark:bg-amber-950/20 border-amber-400/70 dark:border-amber-600/60'
+                    : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!sug.readByAdmin && (
+                      <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white text-[10px] font-black">
+                        إشعار جديد
+                      </span>
+                    )}
+                    <span className="px-2 py-0.5 rounded-md bg-[#E9E2D4] dark:bg-[#1A2B54] text-[10px] font-black">
+                      دور الزائر: {sug.visitorRole === 'artisan' ? 'فنان / ورشة' : sug.visitorRole === 'supplier' ? 'مورد خامات' : sug.visitorRole === 'customer' ? 'عميل' : sug.visitorRole === 'trainer' ? 'مدرب / خبير' : 'زائر'}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-[#64748B]">
+                    {new Date(sug.createdAt).toLocaleString('ar-EG')}
+                  </span>
+                </div>
+                {sug.originalQuestion && sug.originalQuestion !== sug.suggestionText && (
+                  <p className="text-[11px] font-bold text-[#64748B] dark:text-[#94A3B8]">
+                    السؤال الأصلي: «{sug.originalQuestion}»
+                  </p>
+                )}
+                <p className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] whitespace-pre-wrap">
+                  {sug.suggestionText}
+                </p>
               </div>
             ))
           )}

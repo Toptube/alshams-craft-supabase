@@ -5372,6 +5372,99 @@ app.post('/api/admin/shamousa/knowledge/draft', requireAuth, async (req: Authent
 });
 
 // -------------------------------------------------------------
+// Shamousa Landing Page Visitor Suggestions -> Super Admin Inbox
+// -------------------------------------------------------------
+const landingSuggestionRateMap = new Map<string, number[]>();
+const ALLOWED_LANDING_VISITOR_ROLES = new Set(['artisan', 'supplier', 'customer', 'trainer', 'visitor']);
+
+app.post('/api/public/shamousa/landing-suggestions', async (req: Request, res: Response) => {
+  try {
+    const ip =
+      String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown')
+        .split(',')[0]
+        .trim()
+        .slice(0, 64);
+    const nowMs = Date.now();
+    const recentHits = (landingSuggestionRateMap.get(ip) || []).filter((ts) => nowMs - ts < 10 * 60 * 1000);
+    if (recentHits.length >= 15) {
+      res.status(429).json({ ok: false, error: 'تم إرسال عدد كبير من المقترحات مؤخراً، حاول مرة أخرى بعد قليل.' });
+      return;
+    }
+    recentHits.push(nowMs);
+    landingSuggestionRateMap.set(ip, recentHits);
+
+    const rawOriginal = typeof req.body?.originalQuestion === 'string' ? req.body.originalQuestion.trim() : '';
+    const rawSuggestion = typeof req.body?.suggestionText === 'string' ? req.body.suggestionText.trim() : '';
+    const rawRole = typeof req.body?.visitorRole === 'string' ? req.body.visitorRole.trim() : 'visitor';
+
+    const cleanSuggestion = stripServerQuestionPII(rawSuggestion).slice(0, 500);
+    const cleanOriginal = stripServerQuestionPII(rawOriginal).slice(0, 250);
+    const safeRole = ALLOWED_LANDING_VISITOR_ROLES.has(rawRole) ? rawRole : 'visitor';
+
+    if (!cleanSuggestion || cleanSuggestion.length < 3) {
+      res.status(400).json({ ok: false, error: 'نص المقترح قصير جداً' });
+      return;
+    }
+
+    const store = await readDurableKnowledgeStore();
+    const list: any[] = Array.isArray((store as any).landingSuggestions) ? (store as any).landingSuggestions : [];
+    const record = {
+      id: `lsug_${nowMs}_${Math.random().toString(36).slice(2, 6)}`,
+      originalQuestion: cleanOriginal || cleanSuggestion,
+      suggestionText: cleanSuggestion,
+      visitorRole: safeRole,
+      createdAt: new Date(nowMs).toISOString(),
+      readByAdmin: false,
+    };
+    (store as any).landingSuggestions = [record, ...list].slice(0, 300);
+    await writeDurableKnowledgeStore(store);
+
+    res.json({ ok: true, id: record.id });
+  } catch (err: any) {
+    console.warn('[Shamousa Landing Suggestion Error]:', err?.message);
+    res.json({ ok: false });
+  }
+});
+
+app.get('/api/admin/shamousa/landing-suggestions', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'مقترحات زوار صفحة الهبوط متاحة للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const store = await readDurableKnowledgeStore();
+    const list: any[] = Array.isArray((store as any).landingSuggestions) ? (store as any).landingSuggestions : [];
+    res.json({
+      ok: true,
+      suggestions: list,
+      unreadCount: list.filter((s) => !s?.readByAdmin).length,
+    });
+  } catch (err: any) {
+    console.warn('[Shamousa Landing Suggestions Read Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر تحميل مقترحات الزوار حالياً' });
+  }
+});
+
+app.post('/api/admin/shamousa/landing-suggestions/mark-read', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'متاح للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const store = await readDurableKnowledgeStore();
+    const list: any[] = Array.isArray((store as any).landingSuggestions) ? (store as any).landingSuggestions : [];
+    (store as any).landingSuggestions = list.map((s) => ({ ...s, readByAdmin: true }));
+    await writeDurableKnowledgeStore(store, req.scopedSupabase);
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.warn('[Shamousa Landing Suggestions Mark Read Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر تحديث حالة المقترحات' });
+  }
+});
+
+// -------------------------------------------------------------
 // Falcon AI Agent Endpoints (General Crafts, Vision, Pricing)
 // -------------------------------------------------------------
 const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {

@@ -25,6 +25,11 @@ import { WORLD_STOREFRONT_THEMES_LIST } from '../../lib/storefrontThemes';
 import { useSubscriptionPackagesConfig } from '../../types/subscriptions';
 import { getLandingPackageCopyEn } from './landingTranslationsEn';
 import {
+  LandingShamousaFilterBanner,
+  ShamousaLandingWidget,
+} from './ShamousaLandingWidget';
+import type { LandingSectionFilter } from '../../services/shamousaLandingEngine';
+import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
@@ -118,6 +123,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [liveProducts, setLiveProducts] = useState<LiveMarketProduct[]>([]);
   const [liveSuppliers, setLiveSuppliers] = useState<LiveSupplierEntry[]>([]);
+  const [shamousaLandingFilter, setShamousaLandingFilter] = useState<LandingSectionFilter | null>(null);
+
+  const isLandingSectionVisible = (sectionId: string) =>
+    !shamousaLandingFilter || shamousaLandingFilter.visibleSectionIds.includes(sectionId);
   const [marketsLoaded, setMarketsLoaded] = useState(false);
   const [heroImgFailed, setHeroImgFailed] = useState(false);
   const [galleryImgFailed, setGalleryImgFailed] = useState(false);
@@ -450,7 +459,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </header>
 
+      {/* شريط الفلتر التفاعلي لشموسة صفحة الهبوط (يظهر فقط عند التفعيل) */}
+      <LandingShamousaFilterBanner
+        filter={shamousaLandingFilter}
+        onClear={() => setShamousaLandingFilter(null)}
+        onCta={(action) => {
+          if (action === 'register_supplier') handleOpenSupplierRegister();
+          else if (action === 'open_marketplace') onOpenMarketplace?.();
+          else if (action === 'open_suppliers_market') onOpenSuppliersMarket?.();
+          else if (action === 'open_login') onOpenLogin();
+          else onOpenRegister();
+        }}
+      />
+
       {/* 2. Architectural Hero Section — Adapts Dynamically to Active World Theme */}
+      <div id="landing-hero" />
       <section
         id="top"
         style={{ backgroundImage: theme.heroGradient }}
@@ -661,15 +684,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* 3. Section 01 — Interactive Live Systems Explorer (Artisans & Suppliers) */}
-      <LandingSystemsExplorerSection
-        theme={theme}
-        isEn={isEn}
-        onStartArtisan={onOpenRegister}
-        onStartSupplier={handleOpenSupplierRegister}
-      />
+      {isLandingSectionVisible('landing-systems') && (
+        <div id="landing-systems">
+          <LandingSystemsExplorerSection
+            theme={theme}
+            isEn={isEn}
+            onStartArtisan={onOpenRegister}
+            onStartSupplier={handleOpenSupplierRegister}
+          />
+        </div>
+      )}
 
       {/* 4. Section 02 — Asymmetric Visual Editorial Showcase (Artisans + Suppliers) */}
-      <section className="py-12 sm:py-16 px-4 sm:px-6">
+      {isLandingSectionVisible('landing-markets') && (
+      <section id="landing-markets" className="py-12 sm:py-16 px-4 sm:px-6">
         <div className="max-w-6xl mx-auto space-y-8">
           <div className="space-y-2 max-w-2xl">
             <p className="text-xs font-black" style={{ color: theme.accentText }}>
@@ -777,8 +805,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </section>
+      )}
 
       {/* 5. Section 03 — Subscription Packages + Free Launch Offer */}
+      {isLandingSectionVisible('landing-packages') && (
+      <div id="landing-packages">
       <section
         id="packages"
         className="py-12 sm:py-16 px-4 sm:px-6 border-y"
@@ -886,9 +917,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </section>
+      </div>
+      )}
 
       {/* 6. Section 04 — Live Real Marketplace & Verified Suppliers */}
-      {marketsLoaded && (liveProducts.length > 0 || liveSuppliers.length > 0) && (
+      {isLandingSectionVisible('landing-markets') && marketsLoaded && (liveProducts.length > 0 || liveSuppliers.length > 0) && (
         <section className="py-12 sm:py-16 px-4 sm:px-6">
           <div className="max-w-6xl mx-auto space-y-8">
             <div className="flex flex-wrap items-end justify-between gap-4">
@@ -997,7 +1030,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       )}
 
       {/* 7. Section 05 — FAQ & Community Voice */}
+      {isLandingSectionVisible('landing-faq') && (
       <section
+        id="landing-faq"
         className="py-12 sm:py-16 px-4 sm:px-6 border-t"
         style={{ borderColor: theme.borderColor }}
       >
@@ -1060,6 +1095,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </section>
+      )}
 
       {/* 8. Quiet Editorial Footer */}
       <footer
@@ -1227,6 +1263,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* شموسة التفاعلية الأوفلاين لصفحة الهبوط — تظهر من أول دقيقة بدون استهلاك AI */}
+      <ShamousaLandingWidget
+        activeFilter={shamousaLandingFilter}
+        onApplyFilter={setShamousaLandingFilter}
+        onNavigateAction={(action) => {
+          if (action === 'register_supplier') handleOpenSupplierRegister();
+          else if (action === 'open_marketplace') onOpenMarketplace?.();
+          else if (action === 'open_suppliers_market') onOpenSuppliersMarket?.();
+          else if (action === 'open_login') onOpenLogin();
+          else onOpenRegister();
+        }}
+        isPreview={isPreview}
+      />
     </div>
   );
 };

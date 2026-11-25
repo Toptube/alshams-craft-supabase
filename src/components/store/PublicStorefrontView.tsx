@@ -34,8 +34,28 @@ import {
   Trash2,
   User,
   Flame,
+  Scale,
   Tag,
 } from 'lucide-react';
+import {
+  PublicCompareItem,
+  clearCompareScope,
+  getCompareItemsByScope,
+  removeCompareItem,
+  toggleCompareItem,
+} from '../../services/marketCompareService';
+import {
+  MarketShamousaActiveFilter,
+  sanitizePublicMarketItem,
+} from '../../services/shamousaMarketEngine';
+import {
+  PublicCompareModal,
+  PublicFavoritesDrawer,
+} from '../marketplace/PublicFavoritesCompareModals';
+import {
+  ShamousaActiveFilterBar,
+  ShamousaMarketAssistantWidget,
+} from '../marketplace/ShamousaMarketAssistantWidget';
 import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
 import { ProductMediaCarousel } from '../common/ProductMediaCarousel';
@@ -182,23 +202,34 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const [fxTick, setFxTick] = useState<number>(0);
   const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>(() => getWishlistItems());
   const [isWishlistOpen, setIsWishlistOpen] = useState<boolean>(false);
+  const [compareItems, setCompareItems] = useState<PublicCompareItem[]>(() =>
+    getCompareItemsByScope('artisan')
+  );
+  const [isCompareOpen, setIsCompareOpen] = useState<boolean>(false);
+  const [shamousaFilter, setShamousaFilter] = useState<MarketShamousaActiveFilter | null>(null);
+  const [shamousaShippingHint, setShamousaShippingHint] = useState<string | null>(null);
+  const [shamousaOpenSignal, setShamousaOpenSignal] = useState<number>(0);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isDarkTheme, setIsDarkTheme] = useState<boolean>(() =>
     typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : false
   );
 
   const wishlistIds = useMemo(() => new Set(wishlistItems.map((i) => i.id)), [wishlistItems]);
+  const compareIds = useMemo(() => new Set(compareItems.map((i) => i.id)), [compareItems]);
 
   useEffect(() => {
     const onWishlistUpdate = (e: any) => {
       if (Array.isArray(e?.detail)) setWishlistItems(e.detail);
       else setWishlistItems(getWishlistItems());
     };
+    const onCompareUpdate = () => setCompareItems(getCompareItemsByScope('artisan'));
     const onFxUpdate = () => setFxTick((t) => t + 1);
     window.addEventListener('alshams_wishlist_updated', onWishlistUpdate);
+    window.addEventListener('alshams_compare_updated', onCompareUpdate);
     window.addEventListener('alshams_market_builder_updated', onFxUpdate);
     return () => {
       window.removeEventListener('alshams_wishlist_updated', onWishlistUpdate);
+      window.removeEventListener('alshams_compare_updated', onCompareUpdate);
       window.removeEventListener('alshams_market_builder_updated', onFxUpdate);
     };
   }, []);
@@ -609,12 +640,40 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     return [...base, ...Array.from(cats).map((c) => ({ id: c, name: c }))];
   }, [storeData, specialOfferProducts.length, bestSellerProducts.length]);
 
+  const sanitizedShamousaCatalog = useMemo(() => {
+    if (!storeData?.products) return [];
+    const wName = storeData.workshop?.brandName || storeData.workshop?.artistName || 'المتجر';
+    const wSlug = storeData.workshop?.storeSlug || slug;
+    return storeData.products.map((p) => {
+      const pr = resolveProductOfferPricing(p, p.size_variants?.[0]?.label, 'EGP', true);
+      return sanitizePublicMarketItem({
+        id: p.id,
+        name: p.product_name,
+        description: p.store_description,
+        craftOrCategory: p.craft_name || p.category,
+        priceEgp: pr.egpFinalPrice,
+        inStock: (p.current_stock ?? 1) > 0,
+        colors: p.available_colors,
+        sizes: p.size_variants?.map((s) => s.label) || p.available_sizes,
+        storeName: wName,
+        storeSlug: wSlug,
+        storeId: storeData.workshop?.id,
+        imageUrl: p.image_url || undefined,
+        isFreeShipping: pr.isFreeShipping,
+        hasDiscount: pr.hasDiscount,
+      });
+    });
+  }, [storeData, slug]);
+
   const filteredProducts = useMemo(() => {
     if (!storeData?.products) return [];
     const offerIds = new Set(specialOfferProducts.map((p) => p.id));
     const bestIds = new Set(bestSellerProducts.map((p) => p.id));
+    const shamousaIdSet = shamousaFilter ? new Set(shamousaFilter.matchedIds) : null;
 
     const list = storeData.products.filter((p) => {
+      if (shamousaIdSet && !shamousaIdSet.has(p.id)) return false;
+
       const q = searchQuery.toLowerCase().trim();
       const transText = (p as any).translations
         ? Object.values((p as any).translations)
@@ -640,13 +699,14 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     });
 
     const orderRankMap = new Map(productOrder.map((id, idx) => [id, idx]));
+    const activeSort = shamousaFilter?.sortBy || sortBy;
 
-    if (sortBy === 'price_asc') {
+    if (activeSort === 'price_asc') {
       return [...list].sort(
         (a, b) => (a.store_price || a.retail_price || 0) - (b.store_price || b.retail_price || 0)
       );
     }
-    if (sortBy === 'price_desc') {
+    if (activeSort === 'price_desc') {
       return [...list].sort(
         (a, b) => (b.store_price || b.retail_price || 0) - (a.store_price || a.retail_price || 0)
       );
@@ -660,7 +720,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       });
     }
     return list;
-  }, [storeData, searchQuery, selectedCategory, sortBy, productOrder, specialOfferProducts, bestSellerProducts]);
+  }, [storeData, searchQuery, selectedCategory, sortBy, productOrder, specialOfferProducts, bestSellerProducts, shamousaFilter]);
 
   const activeWorkshopId =
     storeData?.workshop?.id || ownerProfile?.tenantId || ownerProfile?.workshopId || ownerProfile?.id || '';
@@ -1109,6 +1169,25 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               {wishlistItems.length > 0 && (
                 <span className="absolute -top-1 -right-1 sm:static min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[9px] sm:text-[10px] font-black flex items-center justify-center">
                   {wishlistItems.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsCompareOpen(true)}
+              style={softBtnStyle}
+              className={`relative w-8 h-8 sm:w-auto sm:h-9 sm:px-3 ${themeSpec.buttonRadiusClass} border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0`}
+              title="المقارنة المنفصلة عن السلة"
+            >
+              <Scale
+                className="w-3.5 h-3.5"
+                style={{ color: themeSpec.accentText }}
+              />
+              <span className="hidden lg:inline">{locale === 'ar' ? 'المقارنة' : 'Compare'}</span>
+              {compareItems.length > 0 && (
+                <span className="absolute -top-1 -right-1 sm:static min-w-4 h-4 px-1 rounded-full bg-[#EA580C] text-white font-mono tabular-nums text-[9px] sm:text-[10px] font-black flex items-center justify-center">
+                  {compareItems.length}
                 </span>
               )}
             </button>
@@ -2092,6 +2171,21 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
         )}
 
+        <div className="mb-3">
+          <ShamousaActiveFilterBar
+            activeFilter={shamousaFilter}
+            totalCatalogCount={storeData?.products?.length || 0}
+            shippingSaveHintAr={shamousaShippingHint}
+            onClearFilter={() => {
+              setShamousaFilter(null);
+              setShamousaShippingHint(null);
+            }}
+            onSortCheapest={() => setSortBy('price_asc')}
+            onOpenShamousa={() => setShamousaOpenSignal((n) => n + 1)}
+            hidePrices={Boolean((effectiveConfig as any)?.hidePrices)}
+          />
+        </div>
+
         {/* Clean Products Grid — Dynamically Adapts Architecture to Selected Theme */}
         {!loading && filteredProducts.length > 0 && (
           <div
@@ -2264,27 +2358,71 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           الأبرز في المتجر
                         </span>
                       )}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleWishlistProduct(p, pricing.egpFinalPrice, pricing.isFreeShipping);
-                        }}
-                        aria-label={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
-                        title={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'أضف للمفضلة'}
-                        style={{
-                          backgroundColor: themeSpec.surfaceBg,
-                          borderColor: themeSpec.borderColor,
-                        }}
-                        className="absolute top-2 left-2 z-10 w-8 h-8 rounded-full border flex items-center justify-center shadow-xs hover:scale-105 active:scale-95 transition cursor-pointer"
-                      >
-                        <Heart
-                          className={`w-4 h-4 transition ${
-                            wishlistIds.has(p.id) ? 'fill-rose-500 text-rose-500' : ''
+                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleWishlistProduct(p, pricing.egpFinalPrice, pricing.isFreeShipping);
+                          }}
+                          aria-label={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+                          title={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'أضف للمفضلة'}
+                          style={{
+                            backgroundColor: themeSpec.surfaceBg,
+                            borderColor: themeSpec.borderColor,
+                          }}
+                          className="w-8 h-8 rounded-full border flex items-center justify-center shadow-xs hover:scale-105 active:scale-95 transition cursor-pointer"
+                        >
+                          <Heart
+                            className={`w-4 h-4 transition ${
+                              wishlistIds.has(p.id) ? 'fill-rose-500 text-rose-500' : ''
+                            }`}
+                            style={!wishlistIds.has(p.id) ? { color: themeSpec.mutedColor } : undefined}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const res = toggleCompareItem({
+                              id: p.id,
+                              scope: 'artisan',
+                              name: p.product_name,
+                              imageUrl: p.image_url || '/alshams_falcon_emblem.png',
+                              priceEgp: pricing.egpFinalPrice,
+                              craftOrCategory: p.craft_name || p.category,
+                              sizeLabel: p.size_variants?.[0]?.label || p.available_sizes?.[0],
+                              inStock: (p.current_stock ?? 1) > 0,
+                              storeName: brandName,
+                              storeSlug: storeData?.workshop?.storeSlug || slug,
+                              storeId: storeData?.workshop?.id,
+                              isFreeShipping: pricing.isFreeShipping,
+                            });
+                            setCompareItems(res.scopeItems);
+                            playTapSound();
+                            setAddedToast(
+                              res.limitReached
+                                ? 'وصلت للحد الأقصى للمقارنة (12 منتج)'
+                                : res.added
+                                ? `تمت إضافة "${p.product_name}" إلى المقارنة ⚖️`
+                                : `تمت إزالة "${p.product_name}" من المقارنة`
+                            );
+                            setTimeout(() => setAddedToast(null), 2400);
+                          }}
+                          aria-label={compareIds.has(p.id) ? 'إزالة من المقارنة' : 'أضف للمقارنة'}
+                          title={compareIds.has(p.id) ? 'في المقارنة (اضغط للإزالة)' : 'أضف للمقارنة ⚖️'}
+                          style={
+                            !compareIds.has(p.id)
+                              ? { backgroundColor: themeSpec.surfaceBg, borderColor: themeSpec.borderColor, color: themeSpec.mutedColor }
+                              : undefined
+                          }
+                          className={`w-8 h-8 rounded-full border flex items-center justify-center shadow-xs hover:scale-105 active:scale-95 transition cursor-pointer ${
+                            compareIds.has(p.id) ? 'bg-[#EA580C] border-[#EA580C] text-white' : ''
                           }`}
-                          style={!wishlistIds.has(p.id) ? { color: themeSpec.mutedColor } : undefined}
-                        />
-                      </button>
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                       {(p.video_url || p.videoUrl) && (
                         <div className="absolute bottom-2 right-2 z-10">
                           <ProductVideoThumbnail
@@ -3047,102 +3185,119 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         </div>
       )}
 
-      {/* Wishlist Drawer Modal */}
-      {isWishlistOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-xs"
-          dir="rtl"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsWishlistOpen(false);
-          }}
-        >
-          <div className="w-full max-w-lg rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl overflow-hidden text-right flex flex-col max-h-[84vh]">
-            <div className="px-5 py-3.5 bg-[#E9E2D4] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Heart className="w-4 h-4 fill-rose-500 text-rose-500" />
-                <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                  قائمة المفضلة ({wishlistItems.length})
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsWishlistOpen(false)}
-                className="w-8 h-8 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* درج المفضلة ❤️ مع مشاركة واتساب وفيسبوك + نقل للمقارنة + وفّر شحن */}
+      <PublicFavoritesDrawer
+        isOpen={isWishlistOpen}
+        onClose={() => setIsWishlistOpen(false)}
+        items={wishlistItems}
+        onRemove={(id) => setWishlistItems(removeWishlistItem(id))}
+        onSelectProduct={(id) => {
+          const found = storeData?.products?.find((x) => x.id === id);
+          if (found) {
+            setIsWishlistOpen(false);
+            handleOpenProduct(found);
+          }
+        }}
+        onMoveToCompare={(wi) => {
+          const res = toggleCompareItem({
+            id: wi.id,
+            scope: 'artisan',
+            name: wi.productName,
+            imageUrl: wi.imageUrl,
+            priceEgp: wi.egpPrice,
+            craftOrCategory: wi.craftName,
+            inStock: true,
+            storeName: wi.artistName || brandName,
+            storeSlug: storeData?.workshop?.storeSlug || slug,
+            storeId: wi.workshopId || workshop?.id,
+            isFreeShipping: wi.isFreeShipping,
+          });
+          setCompareItems(res.scopeItems);
+          setAddedToast(res.added ? `تمت إضافة "${wi.productName}" إلى المقارنة ⚖️` : `تمت إزالة "${wi.productName}" من المقارنة`);
+          setTimeout(() => setAddedToast(null), 2400);
+        }}
+        compareIds={compareIds}
+        hidePrices={Boolean((effectiveConfig as any)?.hidePrices)}
+        formatPrice={(egp) => {
+          const v = convertBetweenCurrencies(egp, 'EGP', customerCurrency);
+          const c = getCurrencyInfo(customerCurrency);
+          return `${Math.round(v).toLocaleString('ar-EG')} ${c.symbol}`;
+        }}
+        isGuest={!ownerProfile && !customerUser}
+        onOpenRegister={() => {
+          setIsWishlistOpen(false);
+          setIsCustomerAuthOpen(true);
+        }}
+      />
 
-            <div className="p-4 overflow-y-auto space-y-2.5 flex-1">
-              {wishlistItems.length === 0 ? (
-                <div className="py-10 text-center space-y-2 text-xs text-[#475569] dark:text-[#94A3B8]">
-                  <Heart className="w-8 h-8 mx-auto opacity-50 text-rose-500" />
-                  <p className="font-bold">لم تقم بحفظ أي مشغولات في المفضلة بعد.</p>
-                </div>
-              ) : (
-                wishlistItems.map((wi) => {
-                  const displayPrice = convertBetweenCurrencies(wi.egpPrice, 'EGP', customerCurrency);
-                  const displayCurr = getCurrencyInfo(customerCurrency);
-                  return (
-                    <div
-                      key={wi.id}
-                      className="p-2.5 rounded-xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2.5 text-xs"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <img
-                          src={wi.imageUrl || '/alshams_falcon_emblem.png'}
-                          alt={wi.productName}
-                          className="w-12 h-12 rounded-lg object-cover bg-[#E9E2D4] shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <h4 className="font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
-                            {wi.productName}
-                          </h4>
-                          <p className="font-mono font-bold text-[#C2410C] dark:text-[#FBBF24]">
-                            {displayPrice.toLocaleString('ar-EG')} {displayCurr.symbol}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            addToCart({
-                              id: 'cart_' + Date.now(),
-                              productId: wi.id,
-                              productName: wi.productName,
-                              price: wi.egpPrice,
-                              quantity: 1,
-                              imageUrl: wi.imageUrl || '',
-                              craftName: wi.craftName,
-                              workshopId: wi.workshopId || workshop?.id,
-                              artistName: wi.artistName || artistName,
-                              isFreeShipping: wi.isFreeShipping,
-                            });
-                            playAddToCartSound();
-                            setAddedToast(`تم إضافة "${wi.productName}" إلى السلة`);
-                            setTimeout(() => setAddedToast(null), 2600);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white font-black text-[11px] cursor-pointer"
-                        >
-                          أضف للسلة
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setWishlistItems(removeWishlistItem(wi.id))}
-                          className="p-1.5 rounded-lg bg-[#E9E2D4] dark:bg-[#0D162E] text-rose-600 hover:bg-rose-50 cursor-pointer"
-                          title="إزالة"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
+      {/* شاشة المقارنة المنفصلة ⚖️ عن السلة */}
+      <PublicCompareModal
+        isOpen={isCompareOpen}
+        onClose={() => setIsCompareOpen(false)}
+        scope="artisan"
+        items={compareItems}
+        onRemove={(id) => setCompareItems(removeCompareItem(id, 'artisan'))}
+        onClearAll={() => {
+          clearCompareScope('artisan');
+          setCompareItems([]);
+        }}
+        onSelectProduct={(id) => {
+          const found = storeData?.products?.find((x) => x.id === id);
+          if (found) {
+            setIsCompareOpen(false);
+            handleOpenProduct(found);
+          }
+        }}
+        onAddToCart={(ci) => {
+          addToCart({
+            id: 'cart_' + Date.now(),
+            productId: ci.id,
+            productName: ci.name,
+            price: ci.priceEgp,
+            quantity: 1,
+            imageUrl: ci.imageUrl || '',
+            craftName: ci.craftOrCategory,
+            workshopId: ci.storeId || workshop?.id,
+            artistName: ci.storeName || artistName,
+            isFreeShipping: ci.isFreeShipping,
+          });
+          playAddToCartSound();
+          setAddedToast(`تم إضافة "${ci.name}" إلى السلة`);
+          setTimeout(() => setAddedToast(null), 2600);
+        }}
+        hidePrices={Boolean((effectiveConfig as any)?.hidePrices)}
+        disableDirectOrders={Boolean((effectiveConfig as any)?.disableDirectOrders)}
+        formatPrice={(egp) => {
+          const v = convertBetweenCurrencies(egp, 'EGP', customerCurrency);
+          const c = getCurrencyInfo(customerCurrency);
+          return `${Math.round(v).toLocaleString('ar-EG')} ${c.symbol}`;
+        }}
+      />
+
+      {/* ويدجت شموسة الأوفلاين 100% للمتجر الخاص (تحترم إعدادات خصوصية المتجر بالكامل) */}
+      {!isOwnerPreview && (
+        <ShamousaMarketAssistantWidget
+          mode="artisan_storefront"
+          catalog={sanitizedShamousaCatalog}
+          storeName={brandName}
+          privacy={{
+            hidePrices: Boolean((effectiveConfig as any)?.hidePrices),
+            disableDirectOrders: Boolean((effectiveConfig as any)?.disableDirectOrders),
+            disableWhatsapp: effectiveConfig.showPhoneButtons === false,
+          }}
+          isAuthenticated={Boolean(ownerProfile || customerUser)}
+          compareCount={compareItems.length}
+          favoritesCount={wishlistItems.length}
+          activeFilter={shamousaFilter}
+          onApplyFilter={(f, hint) => {
+            setShamousaFilter(f);
+            setShamousaShippingHint(hint || null);
+          }}
+          onOpenCompare={() => setIsCompareOpen(true)}
+          onOpenFavorites={() => setIsWishlistOpen(true)}
+          onOpenRegister={() => setIsCustomerAuthOpen(true)}
+          externalOpenSignal={shamousaOpenSignal}
+        />
       )}
 
       {/* Floating Animated Contact Bubble Dock ("تواصل معي") */}
