@@ -48,6 +48,7 @@ import {
   localizeSizeLabel,
   localizeColorLabel,
 } from '../../lib/publicLocale';
+import { consumeProductWizardPrefillDraft } from '../../services/shamousaProductWizard';
 
 interface DirectCatalogProductPageProps {
   isOpen?: boolean;
@@ -513,6 +514,30 @@ export const DirectCatalogProductPage: React.FC<DirectCatalogProductPageProps> =
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // تعبئة تلقائية من معالج «منتج جديد» في شموسة ليراجعها الفنان قبل الحفظ
+  useEffect(() => {
+    if (!isOpen) return;
+    const draft = consumeProductWizardPrefillDraft();
+    if (!draft) return;
+    if (draft.productName) setProductName(draft.productName);
+    if (draft.storePrice) setStorePrice(draft.storePrice);
+    if (draft.storeDescription) setStoreDescription(draft.storeDescription);
+    if (draft.personalNotes) setPersonalNotes(draft.personalNotes);
+    if (draft.videoUrl) setVideoUrl(draft.videoUrl);
+    if (draft.sizeLabel && Number(draft.storePrice) > 0) {
+      const pr = Number(draft.storePrice);
+      setSizeVariants([
+        {
+          id: `sz_wiz_${Date.now()}`,
+          label: draft.sizeLabel,
+          price: pr,
+          egpPrice: toEgpAmount(pr, currencyCode),
+        },
+      ]);
+    }
+    showTempNotice('شموسة جهّزت بيانات المنتج — راجعها وعدّل اللي تحبه قبل الحفظ ✨');
+  }, [isOpen, currencyCode]);
 
   if (!isOpen) return null;
 

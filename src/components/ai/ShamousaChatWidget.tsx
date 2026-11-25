@@ -31,12 +31,15 @@ import {
   RotateCcw,
   Volume2,
   VolumeX,
+  Copy,
+  BookPlus,
 } from 'lucide-react';
 import { AlShamsSunIcon, shamousaSearchIconImg, ShamousaMascotAvatar, ShamousaMascotFull } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
 import type { UserProfile } from '../../types';
 import { DraggableShamosa } from './DraggableShamosa';
-import { tenantStorage } from '../../db/dexieDB';
+import { db, tenantStorage } from '../../db/dexieDB';
+import { fetchMemberPersonalProfile, getCachedMemberPersonalProfile } from '../../db/memberProfileService';
 import { getWorkOrdersFromSupabase } from '../../db/workshopInvoicesCloud';
 import { playTaskDoneSound, playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 import { dispatchArtisanNotification } from '../../lib/pushNotifications';
@@ -88,7 +91,72 @@ import {
   detectLockedSubscriptionQuery,
   buildAiSubscriptionPromptContext,
   isModuleUnlockedBySubscription,
+  hasFeature,
+  buildFourPartLockedPackageReply,
 } from '../../types/subscriptions';
+import {
+  isNewProductWizardTrigger,
+  startNewProductWizard,
+  advanceProductWizard,
+  saveProductWizardPrefillDraft,
+  type ProductWizardState,
+  type ProductWizardChoice,
+  type ShamousaCopyBlock,
+  type ProductWizardPrefillDraft,
+} from '../../services/shamousaProductWizard';
+import { analyzeImageQualityWithCanvas } from '../../services/shamousaImageQuality';
+import {
+  buildLibraryMarketingCopy,
+  buildOfflineImageUploadResponse,
+  matchCustomerObjectionFromLibrary,
+  understandProductSentence,
+} from '../../services/shamousaProductUnderstanding';
+import {
+  ADMIN_LIBRARY_CATEGORIES,
+  INITIAL_ADMIN_REVIEW_SESSION,
+  advanceSuperAdminReviewDialogue,
+  buildSuperAdminLibraryGuide,
+  countCustomLibraryItems,
+  deleteCustomLibraryItemById,
+  getEffectiveMarketingLibrary,
+  hydrateCustomLibrariesFromServer,
+  isSuperAdminGuideQuery,
+  isSuperAdminReviewPendingQuery,
+  loadCustomLibrariesStore,
+  matchCustomKnowledgeNote,
+  parseAndSaveAdminLibraryEntry,
+  queueUnansweredQuestionForAdmin,
+  recordAccountMarketingInsight,
+  type AdminLibraryCategoryId,
+  type SuperAdminReviewSessionState,
+} from '../../services/shamousaCustomLibrariesStore';
+import {
+  analyzeAccountProductPricing,
+  buildArtisanStorePostsAndWhatsapp,
+  buildHeroSlowBundleOffer,
+  buildProactiveTop3MarketingSuggestions,
+  buildSupplierSlowStockVolumeTiers,
+  buildSupplierStarterKitsFromStock,
+  buildSupplierWorkshopPosts,
+  computeProductionCapacityFromStock,
+  formatEgyptianSeasonsReply,
+  formatProactiveTop3Reply,
+  formatUnifiedMaterialReply,
+  parseExplicitDraftCostFromMessage,
+  runDraftCostCalculationViaExistingEngine,
+  runNewProductStockRadar,
+  saveAccountSeasonDateOverride,
+  tryParseSeasonDateOverrideCommand,
+} from '../../services/shamousaMarketingPricingEngine';
+import { auditPersonalProfileOffline } from '../../services/shamousaProfileAdvisor';
+import {
+  buildPackageAdaptiveDecisionReportOffline,
+  runStoreMarketingReviewOffline,
+  buildSafeDiscountOfferFromUserFloor,
+  buildWhatsAppTemplatesOffline,
+  type MinimumPriceOfferState,
+  type ShamousaOpenEventDetail,
+} from '../../services/shamousaMarketingAndDecision';
 
 export interface ShamousaActionLink {
   label: string;
@@ -153,6 +221,10 @@ export interface ShamousaMessage {
   attachmentPreview?: string;
   sources?: Array<{ title: string; url: string }>;
   searchUsed?: boolean;
+  copyBlocks?: ShamousaCopyBlock[];
+  wizardChoices?: ProductWizardChoice[];
+  wizardMultiSelected?: string[];
+  productPrefillDraft?: ProductWizardPrefillDraft;
 }
 
 export interface WorkshopAppointment {
@@ -184,6 +256,7 @@ export interface ShamousaChatWidgetProps {
   onNavigateView?: (view: string) => void;
   liftUp?: boolean;
   isAnyModalOpen?: boolean;
+  hideFloatingLauncher?: boolean;
 }
 
 // استخراج الاسم الأول المباشر دون ألقاب رسمية
@@ -578,6 +651,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   onNavigateView,
   liftUp = false,
   isAnyModalOpen = false,
+  hideFloatingLauncher = false,
 }) => {
   const uiLayout = useUiLayoutConfig();
   const aiCfg = uiLayout.aiAssistantsConfig || DEFAULT_AI_ASSISTANTS_UI_CONFIG;
@@ -606,46 +680,87 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const isSuperAdminAccount =
     /hmb\.top\.tu[bp]e/i.test(String(profile.email || '').trim());
 
+  // وضع إضافة المكتبات الحصري للسوبر أدمن داخل شات شموسة
+  const [adminLibMenuOpen, setAdminLibMenuOpen] = useState(false);
+  const [activeAdminLibCategory, setActiveAdminLibCategory] = useState<AdminLibraryCategoryId | null>(null);
+  const [showAdminLibSavedList, setShowAdminLibSavedList] = useState(false);
+  const [customLibVersion, setCustomLibVersion] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    authedFetch('/api/shamousa/custom-libraries')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.store) {
+          hydrateCustomLibrariesFromServer(d.store);
+          setCustomLibVersion((v) => v + 1);
+        }
+      })
+      .catch(() => {
+        // يعمل أوفلاين بالكامل من localStorage بدون أي تعطّل
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const userSub = useUserSubscription(profile);
   const subRole: 'artisan' | 'supplier' = isSupplierAccount ? 'supplier' : 'artisan';
   const subCaps = useMemo(
     () => buildUserSubscriptionCapabilities(userSub, subRole, isSuperAdminAccount),
     [userSub, subRole, isSuperAdminAccount]
   );
+  const accountIdForPkg = profile.id || workshopId;
+  const pkgQueryOptions = useMemo(
+    () => ({ role: subRole, isAdmin: isSuperAdminAccount, overrideSub: userSub }),
+    [subRole, isSuperAdminAccount, userSub]
+  );
 
   const isViewUnlocked = (view?: string): boolean => {
-    if (!view || view === 'home' || view === 'my_subscriptions' || view === 'personal_profile' || view === 'settings') {
+    if (!view || view === 'home' || view === 'my_subscriptions' || view === 'personal_profile' || view === 'settings' || view === 'family') {
       return true;
+    }
+    if (view === 'direct_product_prefill') {
+      return hasFeature('storefront', accountIdForPkg, pkgQueryOptions) || hasFeature('catalog', accountIdForPkg, pkgQueryOptions);
     }
     return isModuleUnlockedBySubscription(view, userSub, subRole, isSuperAdminAccount);
   };
 
   const welcomeMessage = useMemo(() => {
     if (!subCaps.isFullAccess) {
-      const unlockedList: string[] = [];
-      if (subCaps.canStorefront || subCaps.canCatalog) unlockedList.push('متجرك والكتالوج');
+      const unlockedList: string[] = ['صفحتك الشخصية وطبلية العيلة', 'معالج منتج جديد'];
+      if (subCaps.canStorefront || subCaps.canCatalog) unlockedList.push('متجرك ومراجعة منتجاتك ورسائل الواتساب');
       if (subCaps.canOrders) unlockedList.push('أوردراتك');
       if (subCaps.canProduction) unlockedList.push('التسعير والتصنيع');
       if (subCaps.canInventory) unlockedList.push('المخزون والخامات');
       if (subCaps.canFinance) unlockedList.push('الخزائن والحسابات');
       if (subCaps.canSalesCrm) unlockedList.push(isSupplierAccount ? 'الكاشير والعملاء' : 'المبيعات والعملاء');
       if (subCaps.canHr) unlockedList.push('فريق العمل');
-      unlockedList.push('صفحتك الشخصية والعيلة');
       const scopeSummary = unlockedList.join('، ');
-      return `أهلاً بيك يا **${firstName}**! ☀️\nأنا **شموسة** — معاك على قد باقاتك المفعّلة دلوقتي (${subCaps.activePackageTitles.join(' + ')}).\nأقدر أساعدك فوراً في: **${scopeSummary}**. ولو احتجت تفتح أي قسم تاني في أي وقت، هقولك اسم الباقة المناسبة من «اشتراكاتي»!`;
+      return `أهلاً بيك يا **${firstName}**! ☀️\nأنا **شموسة** — معاك على قد باقاتك المفعّلة دلوقتي (${subCaps.activePackageTitles.join(' + ')}).\nأقدر أساعدك فوراً في: **${scopeSummary}**.`;
     }
     return isSupplierAccount
       ? isCraftMode
-        ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلّمك بلغة المحل السهلة من غير تعقيد دائن ومدين، وهتابع معاك الفلوس والمخازن والبيع فوراً. ولو حابب أدوّرلك في السوق أونلاين اضغط على **صورتي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.`
-        : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل التفاصيل الرسمية: **${getModeLabel('sup_finance_title')}**، دفتر الأستاذ، تسويات الفروع، وتقييم المخزون. ولو حابب تفتحلي البحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`
+        ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلّمك بلغة المحل السهلة من غير تعقيد، وهساعدك في تجهيز منتجاتك، التحليل والحلول الذكية، ومتابعة الفلوس والمخازن والبيع فوراً.`
+        : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل التفاصيل: **${getModeLabel('sup_finance_title')}**، التحليل والحلول الذكية، وتسويات الفروع والمخزون.`
       : isCraftMode
-      ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلمك بلغة الورشة السهلة من غير كلام المحاسبين المعقّد، وهساعدك في التسعير، **${getModeLabel('wo_page_title')}**، بواقي الخامات، و**${getModeLabel('rep_page_title')}**. وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`
-      : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل المسميات والأذونات المحاسبية الكاملة (**${getModeLabel('wo_issue_voucher')}**، **${getModeLabel('rep_trial_balance')}**، المدين والدائن، والرسوم المتقدمة). وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`;
+      ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هساعدك في تجهيز منتج جديد، مراجعة صفحتك ومنتجاتك، التحليل والحلول الذكية، والتسعير و**${getModeLabel('wo_page_title')}**.`
+      : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل الأدوات: معالج منتج جديد، التحليل والحلول الذكية، **${getModeLabel('wo_issue_voucher')}**، و**${getModeLabel('rep_trial_balance')}**.`;
   }, [subCaps, firstName, isSupplierAccount, isCraftMode, getModeLabel]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'daily' | 'tasks_agenda' | 'results' | 'or360'>('chat');
   const conversationStateRef = useRef<ShamousaConversationState>({});
+  const productWizardRef = useRef<ProductWizardState>({
+    active: false,
+    currentStep: null,
+    awaitingCustomInput: false,
+    data: { features: [] },
+  });
+  const minPriceOfferRef = useRef<MinimumPriceOfferState>({ awaitingFloorPrice: false });
+  const adminReviewSessionRef = useRef<SuperAdminReviewSessionState>(INITIAL_ADMIN_REVIEW_SESSION);
+  const sendLatestRef = useRef<((text: string, opts?: any) => Promise<void>) | null>(null);
+  const [copiedBlockId, setCopiedBlockId] = useState<string | null>(null);
   const customRulesLoadedRef = useRef(false);
 
   // تثبيت الهيدر العلوي بذكاء عند فتح كيبورد الموبايل (VisualViewport)
@@ -870,10 +985,33 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     sessionOrbitDoneKey,
   ]);
 
-  // الاستماع لحدث فتح شموسة من أي مكان في المنظومة
+  // الاستماع لحدث فتح شات شموسة الواحد من أي زر في المنظومة وتنفيذ النية داخل نفس المحادثة
   useEffect(() => {
-    const handleOpen = () => {
+    const handleOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent<ShamousaOpenEventDetail | undefined>)?.detail;
       setIsOpen(true);
+      setActiveTab('chat');
+      if (detail?.prompt && detail.autoSend) {
+        window.setTimeout(() => {
+          void sendLatestRef.current?.(detail.prompt!);
+        }, 120);
+      } else if (detail?.intent) {
+        const intentPromptMap: Record<string, string> = {
+          decision_report: 'التحليل والحلول الذكية',
+          new_product_wizard: 'منتج جديد',
+          review_products: 'راجع منتجاتي',
+          write_post: 'اكتب لي بوست',
+          whatsapp_message: 'رسالة واتساب',
+          personal_profile_audit: 'راجع صفحتي الشخصية',
+          family_table_idea: 'فكرة بوست لطبلية عيلة الشمساوية',
+        };
+        const mapped = intentPromptMap[detail.intent];
+        if (mapped) {
+          window.setTimeout(() => {
+            void sendLatestRef.current?.(mapped);
+          }, 120);
+        }
+      }
     };
     window.addEventListener('alshams_open_shamousa', handleOpen);
     return () => window.removeEventListener('alshams_open_shamousa', handleOpen);
@@ -1812,6 +1950,19 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       return;
     }
     if (opt.queryText) {
+      if (isSuperAdminAccount && opt.queryText.startsWith('__OPEN_ADMIN_LIB__:')) {
+        const catId = opt.queryText.replace('__OPEN_ADMIN_LIB__:', '') as AdminLibraryCategoryId;
+        setActiveAdminLibCategory(catId);
+        setShowAdminLibSavedList(false);
+        setAdminLibMenuOpen(false);
+        inputRef.current?.focus();
+        return;
+      }
+      if (isSuperAdminAccount && opt.queryText === '__OPEN_ADMIN_SAVED__') {
+        setShowAdminLibSavedList(true);
+        setAdminLibMenuOpen(false);
+        return;
+      }
       await send(opt.queryText);
     }
   };
@@ -1879,6 +2030,1113 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
     setIsLoading(true);
 
+    // 0.08 دليل السوبر أدمن الشخصي: لو نسي إزاي يبرمج شموسة أو يضيف/يحفظ في المكتبات -> تشرحله الخطوات وتفتحله الأزرار فوراً
+    if (isSuperAdminAccount && message && !currentAttachment && isSuperAdminGuideQuery(message)) {
+      try {
+        const guide = buildSuperAdminLibraryGuide(firstName);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_admin_guide_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: guide.reply,
+            chatbotOptions: guide.options,
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      } catch (guideErr) {
+        console.warn('[Shamousa] Super Admin guide recovered safely:', guideErr);
+      }
+    }
+
+    // 0.09 حوار مراجعة الأسئلة المعلقة والغريبة للسوبر أدمن (يعرض السؤال والمقترح، يعدّله تفاعلياً بـ «عدل»، ويحفظه بـ «احفظ»)
+    if (
+      isSuperAdminAccount &&
+      message &&
+      !currentAttachment &&
+      (adminReviewSessionRef.current.active || isSuperAdminReviewPendingQuery(message))
+    ) {
+      try {
+        const rev = advanceSuperAdminReviewDialogue(adminReviewSessionRef.current, message, firstName);
+        adminReviewSessionRef.current = rev.nextSession;
+        if (rev.savedToStore && rev.storeSnapshot) {
+          setCustomLibVersion((v) => v + 1);
+          authedFetch('/api/admin/shamousa/custom-libraries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ store: rev.storeSnapshot }),
+          }).catch(() => {});
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_admin_rev_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: rev.reply,
+            chatbotOptions: rev.options,
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      } catch (revErr) {
+        console.warn('[Shamousa] Super Admin review loop recovered safely:', revErr);
+        adminReviewSessionRef.current = INITIAL_ADMIN_REVIEW_SESSION;
+      }
+    }
+
+    // 0.10 وضع السوبر أدمن «إضافة للمكتبات»: يقبل الصيغة المنظمة أو كلام عربي بسيط ويحفظ فوراً أوفلاين + يزامن السيرفر
+    if (isSuperAdminAccount && activeAdminLibCategory && message) {
+      try {
+        const res = parseAndSaveAdminLibraryEntry(activeAdminLibCategory, message);
+        setCustomLibVersion((v) => v + 1);
+        if (res.ok) {
+          authedFetch('/api/admin/shamousa/custom-libraries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ store: res.storeSnapshot }),
+          }).catch(() => {
+            // محفوظ محلياً أوفلاين حتى لو السيرفر غير متاح حالياً
+          });
+        }
+        const catMeta = ADMIN_LIBRARY_CATEGORIES.find((c) => c.id === activeAdminLibCategory);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_admin_lib_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content:
+              `${res.summaryAr}\n\n` +
+              `📂 **القسم المختار:** ${catMeta?.labelAr || activeAdminLibCategory}` +
+              (res.ok ? `\n💡 تقدر تبعت إضافة تانية في نفس القسم، أو تضغط «إلغاء» في الشريط تحت عشان ترجع للشات العادي.` : ''),
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      } catch (adminLibErr) {
+        console.warn('[Shamousa] Admin library save recovered safely:', adminLibErr);
+      }
+    }
+
+    // 0.12 لو المستخدم بعت صورة أوفلاين (بدون بحث حي وبدون ضغط زر AI): نفحص جودتها محلياً بالـ Canvas ونصارحه ونوجّهه بـ 3 أسئلة سريعة
+    if (currentAttachment && !useGoogleSearch && !sendOptions?.forceAI) {
+      try {
+        const qualityReport = await analyzeImageQualityWithCanvas(
+          currentAttachment.base64,
+          currentAttachment.name || 'الصورة المرفقة'
+        );
+        const imgResp = buildOfflineImageUploadResponse({
+          firstName,
+          imageName: currentAttachment.name,
+          qualityReport,
+        });
+        let extraSpecHint = '';
+        if (message) {
+          const captionUnderstanding = understandProductSentence(message);
+          if (captionUnderstanding.specialty) {
+            extraSpecHint = `\n\n✨ لاحظت من كلامك إن الشغل تبع **${captionUnderstanding.specialty.nameAr}** — تقدر تضغط على أول اختيار تحت ونكمّل فوراً!`;
+          }
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_img_offline_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: `${imgResp.reply}${extraSpecHint}`,
+            chatbotOptions: imgResp.options.map((o) => ({
+              id: o.id,
+              label: o.label,
+              queryText: o.queryText,
+            })),
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      } catch (imgErr) {
+        console.warn('[Shamousa] Offline image inspector recovered safely:', imgErr);
+      }
+    }
+
+    // 0.15 النوايا الأوفلاين المسجّلة داخل شات شموسة الواحد (داخل try/catch لحماية باقي شموسة لو وقع أي موديول)
+    if (message && !currentAttachment) {
+      try {
+      const normIntent = message
+        .toLowerCase()
+        .replace(/[\u064B-\u065F\u0670]/g, '')
+        .replace(/[أإآٱ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/[ىي]/g, 'ي')
+        .trim();
+
+      const buildWizardCtx = async () => {
+        const canInv = hasFeature('inventory', accountIdForPkg, pkgQueryOptions);
+        let stockMaterialNames: string[] = [];
+        if (canInv && workshopId) {
+          const mats = await db.rawMaterials
+            .where('tenantId')
+            .equals(workshopId)
+            .toArray()
+            .catch(() => []);
+          stockMaterialNames = mats
+            .filter((m) => m.isActive !== false && m.materialName)
+            .slice(0, 4)
+            .map((m) => m.materialName);
+        }
+        return {
+          accountId: accountIdForPkg,
+          firstName,
+          brandName: profile.brandName,
+          currencySymbol: profile.currencySymbol || 'ج.م',
+          packageOptions: pkgQueryOptions,
+          stockMaterialNames,
+        };
+      };
+
+      // (أ) استكمال خطوة في معالج «منتج جديد» النشط حالياً
+      if (productWizardRef.current.active) {
+        const wCtx = await buildWizardCtx();
+        const turn = advanceProductWizard(productWizardRef.current, message, wCtx);
+        productWizardRef.current = turn.nextState;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_pw_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: turn.reply,
+            wizardChoices: turn.choices,
+            wizardMultiSelected: turn.selectedMultiValues,
+            copyBlocks: turn.copyBlocks,
+            productPrefillDraft: turn.prefillDraft,
+            actionLink: turn.actionLink,
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // (ب) استكمال سؤال «أقل سعر تقبل تبيع بيه كام؟» (قاعدة 6.1 بدون تكاليف)
+      if (minPriceOfferRef.current.awaitingFloorPrice) {
+        const num = Number(message.replace(/[^\d.]/g, ''));
+        if (Number.isFinite(num) && num > 0) {
+          const offerRes = buildSafeDiscountOfferFromUserFloor({
+            firstName,
+            productName: minPriceOfferRef.current.productName || 'المنتج',
+            listedPrice: minPriceOfferRef.current.listedPrice,
+            userFloorPrice: num,
+            currencySymbol: profile.currencySymbol || 'ج.م',
+          });
+          minPriceOfferRef.current = { awaitingFloorPrice: false };
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_floor_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: offerRes.reply,
+              copyBlocks: offerRes.copyBlocks,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+        // لو المستخدم كتب جملة غير رقمية نلغي الانتظار ونكمّل طبيعي
+        minPriceOfferRef.current = { awaitingFloorPrice: false };
+      }
+
+      // (ج) طلب عرض أو خصم بدون باقة تكاليف أو بدون تكلفة مسجّلة (قاعدة 6.1)
+      if (/(اعمل خصم|عايز خصم|عرض خصم|باقه خصم|خصم علي|نسبه خصم|تخفيض)/.test(normIntent)) {
+        const canCosting = hasFeature('costing', accountIdForPkg, pkgQueryOptions);
+        const canStore = hasFeature('marketing_review', accountIdForPkg, pkgQueryOptions);
+        const prods = canStore && workshopId
+          ? await db.products.where('tenantId').equals(workshopId).toArray().catch(() => [])
+          : [];
+        const targetProd = prods.find((p) => p.isActive !== false);
+        const hasRealCost =
+          canCosting &&
+          targetProd &&
+          Number(targetProd.costPrice || targetProd.output?.unifiedBreakdown?.totalUnitCost || 0) > 0;
+        if (!hasRealCost) {
+          minPriceOfferRef.current = {
+            awaitingFloorPrice: true,
+            productName: targetProd?.productName || 'القطعة بتاعتك',
+            listedPrice: Number(targetProd?.retailPrice || 0) || undefined,
+          };
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_ask_floor_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content:
+                `عشان أجهّزلك عرض آمن من غير ما أخترع نسبة خصم تضرّك يا **${firstName}** ☀️:\n` +
+                `**أقل سعر تقبل تبيع بيه كام (${profile.currencySymbol || 'ج.م'})؟**\n` +
+                `اكتبلي الرقم وهبني العرض على رقْمك إنت فوراً.`,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // (د) بدء معالج «منتج جديد» — يعمل في كل الباقات حتى الأساسية فقط!
+      if (isNewProductWizardTrigger(message)) {
+        const wCtx = await buildWizardCtx();
+        const turn = startNewProductWizard(message, wCtx);
+        productWizardRef.current = turn.nextState;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_pw_start_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: turn.reply,
+            wizardChoices: turn.choices,
+            wizardMultiSelected: turn.selectedMultiValues,
+            copyBlocks: turn.copyBlocks,
+            productPrefillDraft: turn.prefillDraft,
+            actionLink: turn.actionLink,
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // (هـ) تقرير القرارات المتكيّف مع الباقات («التحليل والحلول الذكية»)
+      if (/(التحليل والحلول الذكيه|تقرير القرارات|تحليل ذكي|حلول ذكيه|ملخص القرارات)/.test(normIntent)) {
+        const canStore = hasFeature('marketing_review', accountIdForPkg, pkgQueryOptions);
+        const canCost = hasFeature('costing', accountIdForPkg, pkgQueryOptions);
+        const canInv = hasFeature('inventory', accountIdForPkg, pkgQueryOptions);
+        const canFinOrCrm =
+          hasFeature('finance', accountIdForPkg, pkgQueryOptions) ||
+          hasFeature('sales_crm', accountIdForPkg, pkgQueryOptions);
+
+        const [prods, mats, custs, ords, profRes] = await Promise.all([
+          canStore || canCost
+            ? db.products.where('tenantId').equals(workshopId).toArray().catch(() => [])
+            : Promise.resolve([]),
+          canInv
+            ? db.rawMaterials.where('tenantId').equals(workshopId).toArray().catch(() => [])
+            : Promise.resolve([]),
+          canFinOrCrm
+            ? db.customers.where('tenantId').equals(workshopId).toArray().catch(() => [])
+            : Promise.resolve([]),
+          canFinOrCrm
+            ? db.orders.where('tenantId').equals(workshopId).toArray().catch(() => [])
+            : Promise.resolve([]),
+          (async () => {
+            const cached = getCachedMemberPersonalProfile(profile.id, 'owner');
+            if (cached?.profile) return cached.profile;
+            const fetched = await fetchMemberPersonalProfile(profile.id, 'owner').catch(() => null);
+            return fetched?.profile || null;
+          })(),
+        ]);
+
+        const decision = buildPackageAdaptiveDecisionReportOffline({
+          accountId: accountIdForPkg,
+          firstName,
+          profile,
+          personalProfile: profRes,
+          products: prods,
+          materials: mats,
+          customers: custs,
+          orders: ords,
+          packageOptions: pkgQueryOptions,
+        });
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_dec_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: decision.markdown,
+            chatbotOptions: decision.actionChips.map((c) => ({
+              id: c.id,
+              label: c.label,
+              queryText: c.queryText,
+              view: c.view,
+            })),
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // (و) مراجعة المتجر والمنتجات ودرجة التسويق («راجع منتجاتي»)
+      if (/(راجع منتجاتي|مراجعه منتجاتي|مراجعه المتجر|درجه التسويق|تقييم منتجاتي|تقييم المتجر)/.test(normIntent)) {
+        const canStore = hasFeature('marketing_review', accountIdForPkg, pkgQueryOptions);
+        const prods = canStore && workshopId
+          ? await db.products.where('tenantId').equals(workshopId).toArray().catch(() => [])
+          : [];
+        const review = runStoreMarketingReviewOffline({
+          accountId: accountIdForPkg,
+          firstName,
+          products: prods,
+          packageOptions: pkgQueryOptions,
+        });
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_rev_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: review.summaryMarkdown,
+            actionLink: review.allowed
+              ? { label: 'فتح كتالوج المنتجات 🛍️', view: 'catalog' }
+              : { label: 'فتح صفحة اشتراكاتي 👑', view: 'my_subscriptions' },
+            chatbotOptions: review.allowed
+              ? [
+                  { id: 'rev_opt_new', label: 'جهّز منتج جديد ✨', queryText: 'منتج جديد' },
+                  { id: 'rev_opt_wa', label: 'رسالة واتساب جاهزة 💬', queryText: 'رسالة واتساب' },
+                ]
+              : undefined,
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // (ز) رسائل الواتساب الجاهزة («رسالة واتساب»)
+      if (/(رساله واتساب|رسائل واتساب|واتساب لعميل|اكتبيلي واتساب|اكتب لي واتساب)/.test(normIntent)) {
+        const canWa = hasFeature('whatsapp_messages', accountIdForPkg, pkgQueryOptions);
+        const prods = canWa && workshopId
+          ? await db.products.where('tenantId').equals(workshopId).toArray().catch(() => [])
+          : [];
+        const waRes = buildWhatsAppTemplatesOffline({
+          accountId: accountIdForPkg,
+          firstName,
+          brandName: profile.brandName,
+          currencySymbol: profile.currencySymbol || 'ج.م',
+          products: prods,
+          packageOptions: pkgQueryOptions,
+        });
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_wa_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: waRes.reply,
+            copyBlocks: waRes.copyBlocks,
+            actionLink: waRes.actionLink,
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // (ح) تقييم الصفحة الشخصية + بوست تعريفي + بوست طبلية العيلة (تعمل في الباقة الأساسية دائماً!)
+      if (
+        /(راجع صفحتي|مراجعه صفحتي|تقييم صفحتي|صفحتي الشخصيه|اكتب لي بوست|اكتبيلي بوست|بوست تعريفي|فكره بوست|طبليه العيله|طبلية العيلة|فكره للطبلية|فكرة للطبلية)/.test(
+          normIntent
+        )
+      ) {
+        const canStore = hasFeature('marketing_review', accountIdForPkg, pkgQueryOptions);
+        const [prods, fetchedProf] = await Promise.all([
+          canStore && workshopId
+            ? db.products.where('tenantId').equals(workshopId).toArray().catch(() => [])
+            : Promise.resolve([]),
+          (async () => {
+            const cached = getCachedMemberPersonalProfile(profile.id, 'owner');
+            if (cached?.profile) return cached.profile;
+            const res = await fetchMemberPersonalProfile(profile.id, 'owner').catch(() => null);
+            return res?.profile || null;
+          })(),
+        ]);
+
+        const fallbackProf = fetchedProf || {
+          memberId: profile.id,
+          displayName: profile.artistName || firstName,
+          brandName: profile.brandName || '',
+          accountRole: isSupplierAccount ? ('supplier' as const) : ('artisan' as const),
+          craftsLabels: [],
+          governorate: profile.governorate || '',
+          country: profile.country || 'مصر',
+          bioHeadline: '',
+          storyText: '',
+          showcasePosts: [],
+          visibility: {
+            personalAvatar: { artisans: true, suppliers: true, customers: true },
+            story: { artisans: true, suppliers: true, customers: true },
+            showcase: { artisans: true, suppliers: true, customers: true },
+            contact: { artisans: false, suppliers: false, customers: false },
+            storeLink: { artisans: true, suppliers: true, customers: true },
+            location: { artisans: true, suppliers: true, customers: true },
+          },
+        };
+
+        const audit = auditPersonalProfileOffline({
+          profile: fallbackProf,
+          accountId: accountIdForPkg,
+          products: prods,
+          packageOptions: pkgQueryOptions,
+        });
+
+        const copyBlocks: ShamousaCopyBlock[] = [
+          {
+            id: 'prof_intro_post',
+            title: '✍️ بوست تعريفي جاهز لصفحتك الشخصية',
+            content: audit.contentIdeas.introPost,
+          },
+          {
+            id: 'prof_family_post',
+            title: '👨‍👩‍👧‍👦 بوست أسبوعي لطبلية عيلة الشمساوية',
+            content: audit.contentIdeas.weeklyFamilyTablePost,
+          },
+        ];
+
+        audit.contentIdeas.newProductPosts.slice(0, 2).forEach((pp, idx) => {
+          copyBlocks.push({
+            id: `prof_prod_post_${idx}`,
+            title: `🛍️ بوست لمنتجك «${pp.productName}»`,
+            content: pp.postText,
+          });
+        });
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_prof_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: audit.summaryMarkdown,
+            copyBlocks,
+            actionLink: { label: 'فتح صفحتي الشخصية 👤', view: 'personal_profile' },
+            chatbotOptions: [
+              { id: 'prof_opt_new', label: 'جهّز منتج جديد ✨', queryText: 'منتج جديد' },
+              { id: 'prof_opt_fam', label: 'افتح طبلية العيلة 👨‍👩‍👧‍👦', view: 'family' },
+            ],
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // (ط) الرد على اعتراضات العملاء من المكتبة التسويقية (غالي / خصم / تأخير / جودة / لون أو مقاس تاني)
+      const matchedObjection = matchCustomerObjectionFromLibrary(message);
+      if (matchedObjection && !useGoogleSearch && !sendOptions?.forceAI) {
+        const canCosting = hasFeature('costing', accountIdForPkg, pkgQueryOptions);
+        const canStore = hasFeature('marketing_review', accountIdForPkg, pkgQueryOptions);
+        let floorExtra = '';
+        if (matchedObjection.id === 'obj_discount') {
+          const prods =
+            canStore && workshopId
+              ? await db.products.where('tenantId').equals(workshopId).toArray().catch(() => [])
+              : [];
+          const targetProd = prods.find((p) => p.isActive !== false);
+          const hasRealCost =
+            canCosting &&
+            targetProd &&
+            Number(targetProd.costPrice || targetProd.output?.unifiedBreakdown?.totalUnitCost || 0) > 0;
+          if (!hasRealCost) {
+            minPriceOfferRef.current = {
+              awaitingFloorPrice: true,
+              productName: targetProd?.productName || 'القطعة بتاعتك',
+              listedPrice: Number(targetProd?.storePrice || targetProd?.retailPrice || 0) || undefined,
+            };
+            floorExtra = `\n\n💡 ولو حابب أجهّزلك عرض بديل آمن من غير ما نخسر: **أقل سعر تقبل تبيع بيه كام (${profile.currencySymbol || 'ج.م'})؟**`;
+          }
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_obj_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content:
+              `🤝 **إزاي ترد على اعتراض «${matchedObjection.objectionAr}» يا ${firstName}:**\n` +
+              `${matchedObjection.guidanceAr}${floorExtra}`,
+            chatbotOptions: [
+              { id: 'obj_opt_wa', label: 'قوالب واتساب جاهزة 💬', queryText: 'رسالة واتساب' },
+              { id: 'obj_opt_new', label: 'جهّز منتج جديد ✨', queryText: 'منتج جديد' },
+              { id: 'obj_opt_rev', label: 'راجع منتجاتي 🔍', queryText: 'راجع منتجاتي' },
+            ],
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // (ط-2) البحث في مكتبة أساليب التسويق والمشاكل الفنية المضافة من السوبر أدمن
+      const matchedCustomNote = !useGoogleSearch && !sendOptions?.forceAI ? matchCustomKnowledgeNote(message) : null;
+      if (matchedCustomNote) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_knote_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: `📘 **${matchedCustomNote.titleAr}:**\n${matchedCustomNote.contentAr}`,
+            chatbotOptions: [
+              { id: 'kn_opt_new', label: 'جهّز منتج جديد ✨', queryText: 'منتج جديد' },
+              { id: 'kn_opt_rev', label: 'راجع منتجاتي 🔍', queryText: 'راجع منتجاتي' },
+            ],
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      // (ي) محرك فهم المنتج والمكتبة التسويقية (كلمة واحدة / تخصص / عامية / أخطاء إملائية / أفكار فيديو وتصوير وباقات وهاشتاجات)
+      const isErpOrSystemQuery =
+        /(مبيعات|خامات|مخزون|عملاء|فواتير|خزنه|ارباح|مصروفات|باقات|اشتراك|صقر|كلمه السر|حاسبه|اوردر|مواعيد|تنبيه)/.test(
+          normIntent
+        );
+      if (!isErpOrSystemQuery && !useGoogleSearch && !sendOptions?.forceAI) {
+        const understood = understandProductSentence(message);
+        const asksMarketingIntent =
+          /(اسوق|تسويق|بوست|عنوان|وصف|فيديو|ريلز|تصوير|صوره|هاشتاج|وسوم|باقه|باقات|هديه|هدايا|موسم|عيد|رمضان|شغل يدوي|هاندميد)/.test(
+            normIntent
+          );
+
+        // 1) الجملة غامضة وتحتاج سؤال توضيحي من 3-4 اختيارات
+        if (understood.isAmbiguous && understood.clarifyingOptions && understood.clarifyingOptions.length > 0 && asksMarketingIntent) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_amb_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: `☀️ ${understood.clarifyingQuestion}`,
+              chatbotOptions: understood.clarifyingOptions!.map((o) => ({
+                id: o.id,
+                label: o.label,
+                queryText: o.value,
+              })),
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 2) كلمة واحدة واضحة التخصص (مثل "مكرمية" أو "كروشيه" أو "تافتنج") بدون طلب تفصيلي محدد
+        if (
+          understood.specialty &&
+          !understood.productType &&
+          !asksMarketingIntent &&
+          understood.clarifyingOptions &&
+          understood.clarifyingOptions.length > 0
+        ) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_spec_quick_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: `☀️ ${understood.clarifyingQuestion}`,
+              chatbotOptions: understood.clarifyingOptions!.map((o) => ({
+                id: o.id,
+                label: o.label,
+                queryText: o.value,
+              })),
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // (ح) نوايا محرك التسويق والتسعير والإنتاج (الرسالة 5 من 7 — أوفلاين 100% + باقات مستقلة)
+        const loadPartCData = async () => {
+          const canInv = hasFeature('inventory', accountIdForPkg, pkgQueryOptions);
+          const [prods, mats, ords] = await Promise.all([
+            workshopId ? db.products.where('tenantId').equals(workshopId).toArray().catch(() => []) : Promise.resolve([]),
+            canInv && workshopId
+              ? db.rawMaterials.where('tenantId').equals(workshopId).toArray().catch(() => [])
+              : Promise.resolve([]),
+            workshopId ? db.orders.where('tenantId').equals(workshopId).toArray().catch(() => []) : Promise.resolve([]),
+          ]);
+          return { prods, mats, ords };
+        };
+
+        // 1) تعديل تاريخ موسم مصري محلياً لهذا الحساب فقط
+        const seasonOverrideCmd = tryParseSeasonDateOverrideCommand(message);
+        if (seasonOverrideCmd) {
+          saveAccountSeasonDateOverride(accountIdForPkg, seasonOverrideCmd.seasonId, seasonOverrideCmd.isoDate);
+          const calReply = formatEgyptianSeasonsReply({ firstName, accountId: accountIdForPkg });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_seas_ov_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content:
+                `✅ **تم تعديل تاريخ موسم «${seasonOverrideCmd.seasonNameAr}» محلياً لحسابك إلى ${seasonOverrideCmd.isoDate}!**\n\n` +
+                calReply.reply,
+              chatbotOptions: calReply.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 2) تقويم المواسم المصري + تنبيه 3 أسابيع
+        if (/(المواسم الجايه|تقويم المواسم|مواسم البيع|الموسم الجاي|امتي رمضان|امتي عيد الام|مواسم مصر)/.test(normIntent)) {
+          const calReply = formatEgyptianSeasonsReply({ firstName, accountId: accountIdForPkg });
+          recordAccountMarketingInsight(accountIdForPkg, {
+            kind: 'season_interest',
+            titleAr: 'متابعة تقويم المواسم المصري',
+            detailAr: 'راجعت خطة المواسم الجاية — تقدر تطلب بوستات أو باقات للموسم القادم في أي وقت.',
+            queryText: 'إيه المواسم الجاية؟',
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_seas_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: calReply.reply,
+              chatbotOptions: calReply.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 3) قراءة منظومة الخامات الموحدة (مفتوحة لجميع الحسابات بغض النظر عن الباقة)
+        if (/(منظومه الخامات|الخامات الموحده|خامات نموذجيه|كود خامه|وحدات قياس|خامه\s+\S+)/.test(normIntent)) {
+          const umReply = formatUnifiedMaterialReply(firstName, message);
+          recordAccountMarketingInsight(accountIdForPkg, {
+            kind: 'material_query',
+            titleAr: `بحث خامات موحدة: ${message.slice(0, 32)}`,
+            detailAr: 'تمت مطابقة الخامات مع منظومة الخامات الموحدة وسلاسل الوحدات.',
+            queryText: message,
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_um_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: umReply.reply,
+              chatbotOptions: umReply.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 4) أهم 3 توصيات تسويقية وإنتاجية استباقية (بحد أقصى 3 مرتبة حسب الأثر)
+        if (/(اهم 3 توصيات|اهم توصيات|التوصيات التسويقيه|اعمل ايه عشان ابيع|ازود مبيعاتي ازاي|خطه تسويق النهارده)/.test(normIntent)) {
+          const { prods, mats, ords } = await loadPartCData();
+          const top3 = buildProactiveTop3MarketingSuggestions({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            isSupplier: isSupplierAccount,
+            brandName: profile.brandName,
+            products: prods,
+            rawMaterials: mats,
+            orders: ords,
+            currency: profile.currencySymbol || 'ج.م',
+          });
+          const top3Reply = formatProactiveTop3Reply({ firstName, suggestions: top3 });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_top3_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: top3Reply.reply,
+              chatbotOptions: top3Reply.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 5) تحليل أسعار منتجات الحساب مقارنة ببعضها فقط (costing-gated)
+        if (/(تحليل اسعاري|مقارنه اسعار منتجاتي|راجع اسعاري|اسعار منتجاتي|هامش منتجاتي|في منتج بيخسر)/.test(normIntent)) {
+          const { prods } = await loadPartCData();
+          const pa = analyzeAccountProductPricing({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            firstName,
+            products: prods,
+            currency: profile.currencySymbol || 'ج.م',
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_price_an_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: pa.reply,
+              chatbotOptions: pa.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 6) مسودة حساب تكلفة لمنتج عبر دالة الحاسبة الموجودة نفسها (costing-gated)
+        if (/(بيتكلف كام|تكلفته كام|احسبيلي تكلفه|احسبي تكلفه|مسوده حساب|حساب تكلفه منتج)/.test(normIntent)) {
+          const { prods, mats } = await loadPartCData();
+          const parsedDraft = parseExplicitDraftCostFromMessage(message, mats);
+          const draftRes = runDraftCostCalculationViaExistingEngine({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            firstName,
+            currency: profile.currencySymbol || 'ج.م',
+            productName: parsedDraft.productName,
+            savedProducts: prods,
+            explicitMaterials: parsedDraft.materials,
+            laborWage: parsedDraft.laborWage,
+            packagingCost: parsedDraft.packagingCost,
+            profitMarginPercent: parsedDraft.profitMarginPercent,
+            rawMaterialsInventory: mats,
+          });
+          if (draftRes.awaitingFloorPriceFor) {
+            minPriceOfferRef.current = {
+              awaitingFloorPrice: true,
+              productName: draftRes.awaitingFloorPriceFor.productName,
+              listedPrice: draftRes.awaitingFloorPriceFor.listedPrice,
+            };
+          }
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_draft_cost_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: draftRes.reply,
+              chatbotOptions: draftRes.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 7) طاقة الإنتاج وأول خامة هتخلص وأولويات التشغيل (inventory-gated)
+        if (/(اقدر اصنع كام|اصنع كام قطعه|طاقه الانتاج|اول خامه هتخلص|اولويات الانتاج|اصنع ايه الاول)/.test(normIntent)) {
+          const { prods, mats, ords } = await loadPartCData();
+          const capRes = computeProductionCapacityFromStock({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            firstName,
+            products: prods,
+            rawMaterials: mats,
+            orders: ords,
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_cap_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: capRes.reply,
+              chatbotOptions: capRes.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 8) للموردين: باقات خامات Starter Kits / خصم كميات للراكد / بوستين للورش
+        if (/(باقات خامات|starter kit|ستارتر كيت|باقه خامات للمورد)/.test(normIntent)) {
+          const { mats } = await loadPartCData();
+          const kitsRes = buildSupplierStarterKitsFromStock({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            firstName,
+            brandName: profile.brandName,
+            rawMaterials: mats,
+            currency: profile.currencySymbol || 'ج.م',
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_sup_kits_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: kitsRes.reply,
+              chatbotOptions: kitsRes.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        if (/(خصم كميات|الخامات الراكده|مخزون راكد للمورد|احرك الخامات الراكده)/.test(normIntent)) {
+          const { mats, ords } = await loadPartCData();
+          const volRes = buildSupplierSlowStockVolumeTiers({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            firstName,
+            rawMaterials: mats,
+            orders: ords,
+            currency: profile.currencySymbol || 'ج.م',
+          });
+          if (volRes.awaitingFloorPriceFor) {
+            minPriceOfferRef.current = {
+              awaitingFloorPrice: true,
+              productName: volRes.awaitingFloorPriceFor.productName,
+            };
+          }
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_sup_vol_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: volRes.reply,
+              chatbotOptions: volRes.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        if (/(بوستين للمورد|بوستات للمورد|بوستات لاصحاب الورش|اعلان مورد خامات)/.test(normIntent)) {
+          const { mats } = await loadPartCData();
+          const sp = buildSupplierWorkshopPosts({
+            firstName,
+            brandName: profile.brandName,
+            rawMaterials: mats,
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_sup_posts_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: sp.reply,
+              copyBlocks: sp.copyBlocks,
+              chatbotOptions: sp.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 9) للورش: معادلة التجميع (بطل + راكد)
+        if (/(معادله التجميع|عرض تجميع|منتج راكد|باقه تجميع|احرك الراكد|بطل وراكد)/.test(normIntent)) {
+          const { prods, ords } = await loadPartCData();
+          const bunRes = buildHeroSlowBundleOffer({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            firstName,
+            brandName: profile.brandName,
+            products: prods,
+            orders: ords,
+            currency: profile.currencySymbol || 'ج.م',
+          });
+          if (bunRes.awaitingFloorPriceFor) {
+            minPriceOfferRef.current = {
+              awaitingFloorPrice: true,
+              productName: bunRes.awaitingFloorPriceFor.productName,
+              listedPrice: bunRes.awaitingFloorPriceFor.listedPrice,
+            };
+          }
+          recordAccountMarketingInsight(accountIdForPkg, {
+            kind: 'stagnant_note',
+            titleAr: 'تفعيل عرض تجميع (بطل + راكد)',
+            detailAr: 'جهّزنا فكرة باقة تجميع لتحريك المنتج الأقل طلباً مع المنتج الأكثر مبيعاً.',
+            queryText: 'اقترحيلي عرض تجميع لمنتج راكد',
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_bundle_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: bunRes.reply,
+              copyBlocks: bunRes.copyBlocks,
+              chatbotOptions: bunRes.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 10) للورش: رادار أفكار منتجات جديدة من خامات المخزون
+        if (/(افكار منتجات من خاماتي|رادار افكار|افكار منتجات جديده|اصنع ايه من خاماتي|منتج جديد من المخزون)/.test(normIntent)) {
+          const { prods, mats } = await loadPartCData();
+          const radRes = runNewProductStockRadar({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            firstName,
+            specialtyHint: message,
+            products: prods,
+            rawMaterials: mats,
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_radar_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: radRes.reply,
+              chatbotOptions: radRes.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 11) للورش: بوستين جاهزين باسم المتجر + رسالة واتساب بـ 3 أساليب
+        if (/(بوستين للمتجر|بوست عرض وبوست|ورا الكواليس|رساله واتساب لمنتج|رساله واتساب ب3 اساليب)/.test(normIntent)) {
+          const { prods } = await loadPartCData();
+          const chosenProd =
+            prods.find((p) => p.productName && normIntent.includes(p.productName.toLowerCase())) ||
+            prods[0];
+          const prodName =
+            chosenProd?.productName ||
+            message.replace(/(اكتبيلي|اكتبلي|بوستين للمتجر|عن|رساله واتساب لمنتج|رساله واتساب)/gi, '').trim() ||
+            'منتجنا المميز';
+          const artPosts = buildArtisanStorePostsAndWhatsapp({
+            firstName,
+            brandName: profile.brandName,
+            productName: prodName,
+            productDescription: chosenProd?.storeDescription,
+            price: chosenProd?.storePrice || chosenProd?.retailPrice || chosenProd?.output?.finalSellingPrice,
+            currency: profile.currencySymbol || 'ج.م',
+            specialtyHint: `${chosenProd?.craftName || ''} ${message}`,
+          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_art_posts_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: artPosts.reply,
+              copyBlocks: artPosts.copyBlocks,
+              chatbotOptions: artPosts.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // 3) تخصص واضح + طلب تسويقي/تصوير/فيديو/باقات/هاشتاجات أو منتج محدد
+        if (understood.specialty && (asksMarketingIntent || understood.productType || understood.occasion)) {
+          const spec = understood.specialty;
+          const prodLabel = understood.productType || `قطعة ${spec.nameAr}`;
+          recordAccountMarketingInsight(accountIdForPkg, {
+            kind: 'specialty_focus',
+            titleAr: `تركيز تسويقي على «${spec.nameAr}»`,
+            detailAr: `نقدر نجهزلك باقات هدايا أو أفكار تصوير سريعة لـ ${prodLabel}.`,
+            queryText: `أفكار فيديو وتصوير ${spec.nameAr}`,
+          });
+          const libPack = buildLibraryMarketingCopy({
+            accountId: accountIdForPkg,
+            productName: prodLabel,
+            material: understood.material,
+            occasion: understood.occasion || understood.audience,
+            colorOrStyle: understood.colorOrStyle,
+            sizeDetails: understood.sizeDetails,
+            priceText: understood.numericPrice
+              ? `${understood.numericPrice.toLocaleString('ar-EG')} ${profile.currencySymbol || 'ج.م'}`
+              : undefined,
+            specialty: spec,
+            realProductFactsText: message,
+          });
+
+          let replyBody = '';
+          let copyBlocks: ShamousaCopyBlock[] | undefined;
+
+          if (/(فيديو|ريلز|شورتس|تصوير|صوره)/.test(normIntent)) {
+            replyBody =
+              `🎬 **أفكار تصوير وفيديو لتخصص «${spec.nameAr}» يا ${firstName}:**\n\n` +
+              `📸 **نصيحة التصوير:**\n${libPack.photoTips}\n\n` +
+              `🎥 **أفكار فيديو قصير (15–30 ثانية):**\n` +
+              libPack.videoIdeas.slice(0, 4).map((v, i) => `${i + 1}. ${v}`).join('\n');
+          } else if (/(باقه|باقات|هدايا|طقم)/.test(normIntent)) {
+            replyBody =
+              `🎁 **أفكار باقات وهدايا رائجة في «${spec.nameAr}» يا ${firstName}:**\n` +
+              libPack.bundles.map((b, i) => `${i + 1}. ${b}`).join('\n') +
+              `\n\n✨ **أقوى نقاط البيع للتخصص ده:**\n` +
+              spec.sellingPoints.slice(0, 3).map((s) => `• ${s}`).join('\n');
+          } else if (/(هاشتاج|وسوم|تاج)/.test(normIntent)) {
+            replyBody =
+              `#️⃣ **أفضل وسوم وهاشتاجات «${spec.nameAr}» يا ${firstName}:**\n` +
+              `${libPack.hashtags.join(' ')}\n\n` +
+              `💡 استخدم منهم 5 إلى 8 وسوم مرتبطين بالقطعة نفسها في آخر الوصف أو البوست.`;
+            copyBlocks = [
+              {
+                id: `lib_tags_${Date.now()}`,
+                title: `#️⃣ هاشتاجات ${spec.nameAr} جاهزة للنسخ`,
+                content: libPack.hashtags.join(' '),
+              },
+            ];
+          } else {
+            const seasonLine = understood.matchedSeason
+              ? `\n🗓️ **موسم ${understood.matchedSeason.seasonAr}:** الأنسب له (${understood.matchedSeason.suitableProductsAr})`
+              : '';
+            const extraNoteLine = spec.noteAr ? `\nℹ️ **ملحوظة:** ${spec.noteAr}` : '';
+            const supplierExtras =
+              spec.id === 'suppliers_materials' ? getEffectiveMarketingLibrary().suppliers : undefined;
+
+            if (supplierExtras) {
+              replyBody =
+                `🏪 **دليل التسويق للموردين (بائعي الخامات) يا ${firstName}:**\n` +
+                `• **نقط البيع لأصحاب الورش:** ${supplierExtras.sellingPointsForWorkshops.join(' • ')}\n` +
+                `• **مواسم تجهيز الورش:** ${supplierExtras.seasonsAr}\n` +
+                `• **أفكار باقات خامات (Starter Kits):**\n` +
+                supplierExtras.starterKits.slice(0, 4).map((k) => `  - **${k.titleAr}:** ${k.contentsAr}`).join('\n') +
+                `\n\nجهّزتلك تحت قوالب بوستات ورسالة جاهزة لأصحاب الورش والوسوم للنسخ فوراً 👇`;
+              copyBlocks = [
+                {
+                  id: `sup_posts_${Date.now()}`,
+                  title: '📣 قوالب بوستات للموردين',
+                  content: supplierExtras.postTemplates.map((p, i) => `${i + 1}) ${p}`).join('\n\n'),
+                },
+                {
+                  id: `sup_msg_${Date.now()}`,
+                  title: '💬 رسالة جاهزة لأصحاب الورش',
+                  content: `${supplierExtras.workshopMessageTemplate}\n\n${supplierExtras.hashtags.join(' ')}`,
+                },
+              ];
+            } else {
+              replyBody =
+                `☀️ **جهّزتلك بداية تسويقية لتخصص «${spec.nameAr}» (${prodLabel}) يا ${firstName}:**${seasonLine}${extraNoteLine}\n` +
+                `• **عناوين مقترحة:** ${libPack.titles[0]}\n` +
+                `• **بداية بوست تشدّ العين:** ${libPack.hook}\n` +
+                `• **نصيحة تصوير سريعة:** ${spec.photoTips}\n\n` +
+                `انسخ أي قالب جاهز تحت أو نكمّل بمعالج المنتج خطوة بخطوة 👇`;
+              copyBlocks = [
+                {
+                  id: `lib_titles_${Date.now()}`,
+                  title: `🏷️ 3 عناوين متنوعة لـ ${prodLabel}`,
+                  content: libPack.titles.map((t, i) => `${i + 1}) ${t}`).join('\n'),
+                },
+                {
+                  id: `lib_post_${Date.now()}`,
+                  title: `✍️ بوست جاهز للنشر (${spec.nameAr})`,
+                  content: `${libPack.shortPostSale}\n\n${libPack.engagementQuestion}\n${libPack.hashtags.slice(0, 6).join(' ')}`,
+                },
+              ];
+            }
+          }
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_lib_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: replyBody,
+              copyBlocks,
+              chatbotOptions: [
+                { id: 'lib_opt_wiz', label: `جهّز منتج ${spec.nameAr} كامل ✨`, queryText: `عايز أعمل منتج ${spec.nameAr}` },
+                { id: 'lib_opt_vid', label: 'أفكار تصوير وفيديو 🎬', queryText: `أفكار فيديو وتصوير ${spec.nameAr}` },
+                { id: 'lib_opt_bun', label: 'أفكار باقات وهدايا 🎁', queryText: `باقات ${spec.nameAr}` },
+                { id: 'lib_opt_tag', label: 'الهاشتاجات الجاهزة #️⃣', queryText: `هاشتاجات ${spec.nameAr}` },
+              ],
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+      }
+      } catch (offlineModuleErr) {
+        console.warn('[Shamousa] Offline intent module recovered safely:', offlineModuleErr);
+      }
+    }
+
     // 0.25 فحص فوري لنطاق الباقات والاشتراكات (يعمل أوفلاين وأونلاين قبل أي ملخص أو شات بوت أو AI!)
     if (message && !currentAttachment) {
       const normSubAsk = message
@@ -1897,7 +3155,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               `يا **${firstName}** ☀️ باقاتك المفعّلة حالياً هي:\n` +
               subCaps.activePackageTitles.map((t) => `• ✅ **${t}**`).join('\n') +
               (subCaps.lockedPackages.length > 0
-                ? `\n\nوتقدر تضيف أي باقة تانية في أي وقت من صفحة «اشتراكاتي» (وباقات الإطلاق مجانية حالياً لفترة محدودة!).`
+                ? `\n\nوتقدر تضيف أي باقة تانية في أي وقت من صفحة «اشتراكاتي» (والباقات مجانية دلوقتي!).`
                 : `\n\nكل باقات المنظومة مفتوحة معاك بالكامل! 🎉`),
             actionLink: { label: 'فتح صفحة اشتراكاتي 👑', view: 'my_subscriptions' },
           },
@@ -1965,11 +3223,16 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           experienceMode,
           state: conversationStateRef.current,
           history,
+          accountId: accountIdForPkg,
+          packageOptions: pkgQueryOptions,
         });
         if (localRes.nextState) {
           conversationStateRef.current = localRes.nextState;
         }
         if (localRes.isUnanswered && message.trim().length >= 2) {
+          try {
+            queueUnansweredQuestionForAdmin(message.trim());
+          } catch {}
           authedFetch('/api/shamousa/unanswered', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1980,17 +3243,41 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           }).catch(() => {});
         }
         if (localRes.handled && localRes.reply) {
-          // لو الرد المحلي بيوجه لصفحة مقفولة في باقة المشترك، امنع التسريب وأرشده لباقتها!
+          // لو الرد المحلي بيوجه لصفحة مقفولة في باقة المشترك، نستخدم الرد الرباعي القياسي وبحد أقصى باقة واحدة
           if (localRes.actionLink?.view && !isViewUnlocked(localRes.actionLink.view)) {
+            const viewToActionMap: Record<string, string[]> = {
+              calculator: ['nav_calculator'],
+              work_orders: ['nav_work_orders'],
+              materials: ['nav_materials'],
+              purchases: ['nav_purchases'],
+              suppliers: ['nav_suppliers'],
+              treasuries: ['nav_treasuries'],
+              reports: ['nav_reports'],
+              sales: ['nav_sales'],
+              customers: ['nav_customers'],
+              catalog: ['nav_catalog'],
+              store: ['open_artisan_store_products'],
+              hr: ['nav_hr'],
+              executive_brief: ['open_executive_brief'],
+            };
+            const unlockPkgs = subCaps.findUnlockingPackagesForActions(
+              viewToActionMap[localRes.actionLink.view] || []
+            );
+            const fourPart = buildFourPartLockedPackageReply({
+              firstName,
+              sub: userSub,
+              role: subRole,
+              isAdmin: isSuperAdminAccount,
+              lockedFeatureLabel: localRes.actionLink.label.replace(/^فتح\s*/, ''),
+              unlockingPackages: unlockPkgs,
+            });
             setMessages((prev) => [
               ...prev,
               {
                 id: `a_sub_gate_${Date.now()}`,
                 role: 'assistant',
                 isLocalChatbot: true,
-                content:
-                  `يا **${firstName}** ☀️ الجزء ده مرتبط بقسم مش مفعّل حالياً في باقاتك (${subCaps.activePackageTitles.join(' + ')}).\n` +
-                  `تقدر تفتح «اشتراكاتي» وتفعّل الباقة المناسبة بضغطة واحدة (مجاناً لفترة محدودة)، وساعتها هتابع معاك كل تفاصيلها أول بأول!`,
+                content: fourPart.reply,
                 actionLink: { label: 'فتح صفحة اشتراكاتي 👑', view: 'my_subscriptions' },
               },
             ]);
@@ -2352,10 +3639,25 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     );
   };
 
+  sendLatestRef.current = send;
+
+  const handleCopyBlock = (blockId: string, content: string) => {
+    try {
+      navigator.clipboard?.writeText(content);
+      setCopiedBlockId(blockId);
+      playButtonClickSound();
+      window.setTimeout(() => {
+        setCopiedBlockId((curr) => (curr === blockId ? null : curr));
+      }, 2200);
+    } catch {
+      // ignore clipboard error
+    }
+  };
+
   return (
     <>
       {/* Floating compact launcher mascot — ONLY ONE Shamousa on screen */}
-      {!isOpen && (
+      {!isOpen && !hideFloatingLauncher && (
         <DraggableShamosa
           onClick={() => {
             playButtonClickSound();
@@ -2572,34 +3874,28 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   <Bubble role="assistant">
                     {renderText(welcomeMessage)}
                     <div className="flex flex-wrap gap-1.5 pt-3 mt-2.5 border-t border-[#E3D8C5] dark:border-[#233B75]">
-                      {(isSupplierAccount
-                        ? isCraftMode
-                          ? [
-                              { id: 'w_sb', label: `${getModeLabel('sup_exec_brief_card')} 💰`, intentKey: 'sup_full_brief' },
-                              { id: 'w_sfin', label: `${getModeLabel('sup_finance_title')} 🏦`, view: 'supplier_finance' },
-                              { id: 'w_smode', label: 'الوضع الحرفي والمحاسبي ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
-                              { id: 'w_sum', label: 'الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
-                            ]
-                          : [
-                              { id: 'w_sb', label: `${getModeLabel('sup_exec_brief_card')} 💰`, intentKey: 'sup_full_brief' },
-                              { id: 'w_sfin', label: `${getModeLabel('sup_finance_title')} 📊`, view: 'supplier_finance' },
-                              { id: 'w_swh', label: `${getModeLabel('sup_warehouse_card')} 🏭`, view: 'supplier_warehouse_erp' },
-                              { id: 'w_sdc', label: 'شرح المدين والدائن 📘', queryText: 'يعني ايه دائن ومدين' },
-                            ]
-                        : isCraftMode
-                        ? [
-                            { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
-                            { id: 'w_left', label: 'إرجاع بواقي الخامات 🧶', queryText: 'بواقي الخامات بعد أمر التشغيل' },
-                            { id: 'w_rep', label: `${getModeLabel('rep_page_title')} 📊`, view: 'reports' },
-                            { id: 'w_mode', label: 'الفرق بين الوضعين ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
-                          ]
-                        : [
-                            { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
-                            { id: 'w_wo', label: `${getModeLabel('wo_page_title')} 📋`, view: 'work_orders' },
-                            { id: 'w_rep', label: `${getModeLabel('rep_trial_balance')} ⚖️`, view: 'reports' },
-                            { id: 'w_vch', label: 'دليل الأذونات والقيود 📘', queryText: 'وظيفة الأذونات' },
-                          ]
-                      ).map((wOpt) => (
+                      {(() => {
+                        const chips: ShamousaChatbotOption[] = [
+                          { id: 'w_new_prod', label: 'منتج جديد ✨', queryText: 'منتج جديد' },
+                          { id: 'w_dec_rep', label: 'التحليل والحلول الذكية 📊', queryText: 'التحليل والحلول الذكية' },
+                          { id: 'w_write_post', label: 'اكتب لي بوست ✍️', queryText: 'اكتب لي بوست' },
+                          { id: 'w_prof_aud', label: 'راجع صفحتي الشخصية 👤', queryText: 'راجع صفحتي الشخصية' },
+                        ];
+                        if (hasFeature('marketing_review', accountIdForPkg, pkgQueryOptions)) {
+                          chips.splice(2, 0, { id: 'w_rev_prods', label: 'راجع منتجاتي 🔍', queryText: 'راجع منتجاتي' });
+                        }
+                        if (hasFeature('whatsapp_messages', accountIdForPkg, pkgQueryOptions)) {
+                          chips.push({ id: 'w_wa_msg', label: 'رسالة واتساب 💬', queryText: 'رسالة واتساب' });
+                        }
+                        if (hasFeature('executive_brief', accountIdForPkg, pkgQueryOptions)) {
+                          chips.push({
+                            id: 'w_brief',
+                            label: isSupplierAccount ? `${getModeLabel('sup_exec_brief_card')} 💰` : 'هلخصهالك (الفلوس والمخزن) 💰',
+                            intentKey: isSupplierAccount ? 'sup_full_brief' : 'full_brief',
+                          });
+                        }
+                        return chips;
+                      })().map((wOpt) => (
                         <button
                           key={wOpt.id}
                           type="button"
@@ -2670,6 +3966,84 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                           </div>
                         )}
                       </Bubble>
+
+                      {m.copyBlocks && m.copyBlocks.length > 0 && (
+                        <div className="space-y-2 pr-2 pt-1 max-w-2xl">
+                          {m.copyBlocks.map((block) => {
+                            const isCopied = copiedBlockId === `${m.id}_${block.id}`;
+                            return (
+                              <div
+                                key={block.id}
+                                className="rounded-xl bg-[#FBF7F0] dark:bg-[#0F214C] border border-[#D5C7B0] dark:border-[#2A4585] p-3 space-y-1.5 shadow-2xs"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[11px] sm:text-xs font-black text-[#142A5C] dark:text-[#FBBF24]">
+                                    {block.title}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyBlock(`${m.id}_${block.id}`, block.content)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#EAE0CE] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#1A3573] dark:text-[#E2E8F0] text-[10px] font-black transition cursor-pointer shrink-0"
+                                  >
+                                    {isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                    <span>{isCopied ? 'تم النسخ' : 'نسخ'}</span>
+                                  </button>
+                                </div>
+                                <div className="text-xs text-[#1C2434] dark:text-[#E2E8F0] whitespace-pre-wrap leading-relaxed">
+                                  {renderText(block.content)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {m.productPrefillDraft && (
+                        <div className="flex justify-start pr-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              playButtonClickSound();
+                              saveProductWizardPrefillDraft(m.productPrefillDraft!);
+                              openScreen('direct_product_prefill');
+                            }}
+                            className="inline-flex items-center gap-2 text-xs sm:text-sm font-black px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition cursor-pointer active:scale-95"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>ضيف المنتج بالبيانات دي</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {m.wizardChoices && m.wizardChoices.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
+                          {m.wizardChoices.map((wc) => {
+                            const isSelected = Boolean(m.wizardMultiSelected?.includes(wc.value));
+                            return (
+                              <button
+                                key={wc.id}
+                                type="button"
+                                onClick={() => {
+                                  playButtonClickSound();
+                                  void send(wc.value);
+                                }}
+                                className={`inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-black px-3 py-1.5 rounded-xl border transition shadow-xs cursor-pointer active:scale-95 ${
+                                  wc.isDoneMulti
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500'
+                                    : isSelected
+                                    ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                                    : wc.isCustom
+                                    ? 'bg-[#FBF7F0] hover:bg-[#EAE0CE] text-[#142A5C] dark:bg-[#122657] dark:text-[#E2E8F0] border-[#CDBEA3] dark:border-[#3454A1]'
+                                    : 'bg-[#142A5C] hover:bg-[#1E3F8A] text-white dark:bg-[#1B377B] dark:hover:bg-[#2549A0] border-[#1E3F8A] dark:border-[#3D60B5]'
+                                }`}
+                              >
+                                {isSelected && <Check className="w-3 h-3" />}
+                                <span>{wc.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
 
                       {m.chatbotOptions && m.chatbotOptions.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
@@ -2827,7 +4201,103 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   className="hidden"
                 />
 
-                <div className="max-w-3xl mx-auto rounded-2xl border border-[#CDBEA3] dark:border-[#2E4C94] bg-[#FBF7F0] dark:bg-[#091533] focus-within:ring-2 focus-within:ring-[#1E3F8A] dark:focus-within:ring-[#60A5FA] transition shadow-xs overflow-hidden">
+                {/* شريط وضع «إضافة للمكتبات» الحصري للسوبر أدمن + قائمة المحفوظات */}
+                {isSuperAdminAccount && activeAdminLibCategory && (() => {
+                  const activeCat = ADMIN_LIBRARY_CATEGORIES.find((c) => c.id === activeAdminLibCategory);
+                  return (
+                    <div className="max-w-3xl mx-auto mb-2 px-3 py-2 rounded-xl bg-amber-100/95 dark:bg-amber-950/60 border border-amber-400/70 dark:border-amber-600/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 font-black text-amber-950 dark:text-amber-200">
+                        <BookPlus className="w-4 h-4 shrink-0" />
+                        <span>إضافة إلى: {activeCat?.labelAr}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeCat?.exampleAr) {
+                              setInput(activeCat.exampleAr);
+                              inputRef.current?.focus();
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg bg-white/80 dark:bg-[#132960] border border-amber-300 dark:border-amber-700 text-[11px] font-bold text-amber-950 dark:text-amber-100 hover:brightness-95 cursor-pointer"
+                        >
+                          حطلي مثال جاهز ✨
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveAdminLibCategory(null)}
+                          className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-bold hover:bg-rose-700 cursor-pointer"
+                        >
+                          إلغاء ×
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {isSuperAdminAccount && showAdminLibSavedList && (() => {
+                  void customLibVersion;
+                  const storeSnap = loadCustomLibrariesStore();
+                  const totalSaved = countCustomLibraryItems(storeSnap);
+                  const handleDeleteItem = (id: string) => {
+                    const next = deleteCustomLibraryItemById(id);
+                    setCustomLibVersion((v) => v + 1);
+                    authedFetch('/api/admin/shamousa/custom-libraries', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ store: next }),
+                    }).catch(() => {});
+                  };
+                  return (
+                    <div className="max-w-3xl mx-auto mb-2 p-3 rounded-xl bg-[#FBF7F0] dark:bg-[#0F204D] border border-[#CDBEA3] dark:border-[#2E4C94] max-h-48 overflow-y-auto space-y-2 text-xs">
+                      <div className="flex items-center justify-between border-b border-[#E3D8C5] dark:border-[#223B78] pb-1.5">
+                        <span className="font-black text-[#142A5C] dark:text-[#E2E8F0]">
+                          📚 إضافات السوبر أدمن المحفوظة ({totalSaved})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowAdminLibSavedList(false)}
+                          className="text-[#64748B] hover:text-rose-600 cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {totalSaved === 0 ? (
+                        <p className="text-[#64748B] dark:text-[#94A3B8] text-[11px]">
+                          لسه مفيش إضافات يدوية — اختار أي قسم من قائمة «إضافة للمكتبات» وابعت اللي تحبه.
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {storeSnap.customSpecialties.map((s) => (
+                            <div key={s.id} className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-[#EFE6D7] dark:bg-[#132960]">
+                              <span className="font-bold truncate">📣 تخصص: {s.nameAr} ({s.keywords.length} كلمات)</span>
+                              <button type="button" onClick={() => handleDeleteItem(s.id)} className="text-rose-600 hover:underline text-[11px] font-bold shrink-0 cursor-pointer">حذف</button>
+                            </div>
+                          ))}
+                          {storeSnap.specialtyPatches.map((p) => (
+                            <div key={p.id} className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-[#EFE6D7] dark:bg-[#132960]">
+                              <span className="font-bold truncate">✍️ تحديث على: {p.targetSpecialtyNameAr}</span>
+                              <button type="button" onClick={() => handleDeleteItem(p.id)} className="text-rose-600 hover:underline text-[11px] font-bold shrink-0 cursor-pointer">حذف</button>
+                            </div>
+                          ))}
+                          {storeSnap.knowledgeNotes.map((n) => (
+                            <div key={n.id} className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-[#EFE6D7] dark:bg-[#132960]">
+                              <span className="font-bold truncate">🧠 {n.titleAr}</span>
+                              <button type="button" onClick={() => handleDeleteItem(n.id)} className="text-rose-600 hover:underline text-[11px] font-bold shrink-0 cursor-pointer">حذف</button>
+                            </div>
+                          ))}
+                          {storeSnap.generalAdditions.hooks.length + storeSnap.generalAdditions.titleTemplates.length + storeSnap.generalAdditions.objectionReplies.length > 0 && (
+                            <div className="text-[11px] text-[#475569] dark:text-[#CBD5E1] px-2">
+                              • قوالب عامة مضافة: {storeSnap.generalAdditions.titleTemplates.length} عنوان، {storeSnap.generalAdditions.hooks.length} بداية بوست، {storeSnap.generalAdditions.objectionReplies.length} رد اعتراض.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                <div className="max-w-3xl mx-auto rounded-2xl border border-[#CDBEA3] dark:border-[#2E4C94] bg-[#FBF7F0] dark:bg-[#091533] focus-within:ring-2 focus-within:ring-[#1E3F8A] dark:focus-within:ring-[#60A5FA] transition shadow-xs relative">
                   {/* Top Tier: Full-Width 2-Line Clear Textarea */}
                   <textarea
                     ref={inputRef}
@@ -2844,9 +4314,11 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                       }
                     }}
                     rows={2}
-                    maxLength={1000}
+                    maxLength={isSuperAdminAccount && activeAdminLibCategory ? 12000 : 1000}
                     placeholder={
-                      useGoogleSearch
+                      isSuperAdminAccount && activeAdminLibCategory
+                        ? ADMIN_LIBRARY_CATEGORIES.find((c) => c.id === activeAdminLibCategory)?.placeholderAr || 'اكتب أو الصق الإضافة هنا...'
+                        : useGoogleSearch
                         ? 'اسأل شموسة عن أحدث أسعار السوق والخامات...'
                         : aiCfg.shamousaChatPlaceholder
                     }
@@ -2855,7 +4327,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
                   {/* Bottom Tier: Clean Compact Action Bar */}
                   <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {/* زر المرفقات */}
                       <button
                         type="button"
@@ -2927,6 +4399,72 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                           />
                         )}
                       </button>
+
+                      {/* زر «إضافة للمكتبات ▾» الحصري للسوبر أدمن — قائمة منسدلة تضيف مباشرة لمكتبات شموسة بدون كود */}
+                      {isSuperAdminAccount && (
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              playButtonClickSound();
+                              setAdminLibMenuOpen((prev) => !prev);
+                            }}
+                            title="إضافة للمكتبات (سوبر أدمن فقط)"
+                            className={`h-8 px-2.5 rounded-xl border text-[11px] font-black flex items-center gap-1 transition cursor-pointer shrink-0 ${
+                              activeAdminLibCategory
+                                ? 'bg-amber-500 border-amber-600 text-white shadow-sm'
+                                : 'bg-[#EFE6D7] dark:bg-[#122657] border-[#D5C7B0] dark:border-[#2A468B] text-[#142A5C] dark:text-[#E2E8F0] hover:border-amber-500'
+                            }`}
+                          >
+                            <BookPlus className="w-3.5 h-3.5 shrink-0" />
+                            <span>إضافة للمكتبات</span>
+                            <ChevronDown className="w-3 h-3 shrink-0" />
+                          </button>
+
+                          {adminLibMenuOpen && (
+                            <div className="absolute bottom-10 right-0 z-50 w-72 rounded-2xl bg-[#FBF7F0] dark:bg-[#0F204D] border border-[#CDBEA3] dark:border-[#3454A1] shadow-xl p-1.5 space-y-1 text-right">
+                              <div className="px-2.5 py-1 text-[10px] font-black text-[#64748B] dark:text-[#94A3B8] border-b border-[#E3D8C5] dark:border-[#223B78]">
+                                اختار المكتبة اللي عايز تضيف فيها (سوبر أدمن)
+                              </div>
+                              {ADMIN_LIBRARY_CATEGORIES.map((cat) => (
+                                <button
+                                  key={cat.id}
+                                  type="button"
+                                  onClick={() => {
+                                    playButtonClickSound();
+                                    setActiveAdminLibCategory(cat.id);
+                                    setAdminLibMenuOpen(false);
+                                    setShowAdminLibSavedList(false);
+                                    inputRef.current?.focus();
+                                  }}
+                                  className={`w-full text-right px-2.5 py-2 rounded-xl transition cursor-pointer ${
+                                    activeAdminLibCategory === cat.id
+                                      ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-950 dark:text-amber-100'
+                                      : 'hover:bg-[#EFE6D7] dark:hover:bg-[#17306F] text-[#1C2434] dark:text-[#F1F5F9]'
+                                  }`}
+                                >
+                                  <div className="text-xs font-black">{cat.labelAr}</div>
+                                  <div className="text-[10px] text-[#64748B] dark:text-[#94A3B8] leading-snug">
+                                    {cat.descriptionAr}
+                                  </div>
+                                </button>
+                              ))}
+                              <div className="border-t border-[#E3D8C5] dark:border-[#223B78] pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowAdminLibSavedList((v) => !v);
+                                    setAdminLibMenuOpen(false);
+                                  }}
+                                  className="w-full text-right px-2.5 py-1.5 rounded-xl text-[11px] font-black text-[#142A5C] dark:text-[#93C5FD] hover:bg-[#EFE6D7] dark:hover:bg-[#17306F] cursor-pointer"
+                                >
+                                  📋 عرض / إدارة الإضافات المحفوظة ({countCustomLibraryItems()})
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* زر الإرسال */}

@@ -243,15 +243,17 @@ const FamilyAuthorIdentity: React.FC<AuthorIdentityProps> = ({
         {isSuperAdmin ? 'كبير العيلة' : authorName}
       </span>
 
-      {!isSuperAdmin && brandName && (
-        <span
-          className={`${
-            compact ? 'text-[11px]' : 'text-xs'
-          } font-bold text-[#475569] dark:text-[#CBD5E1]`}
-        >
-          ({brandName})
-        </span>
-      )}
+      {!isSuperAdmin &&
+        brandName &&
+        brandName.trim().toLowerCase() !== authorName.trim().toLowerCase() && (
+          <span
+            className={`${
+              compact ? 'text-[11px]' : 'text-xs'
+            } font-bold text-[#475569] dark:text-[#CBD5E1]`}
+          >
+            ({brandName})
+          </span>
+        )}
 
       {!isSuperAdmin && authorRole === 'supplier' && (
         <span className="text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24]">

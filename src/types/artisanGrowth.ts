@@ -224,7 +224,10 @@ export interface TrainerEmbeddedPost {
   authorAvatar?: string | null;
   authorGender?: 'male' | 'female';
   title: string;
+  titleEn?: string;
   description: string;
+  descriptionEn?: string;
+  translations?: Partial<Record<string, { title?: string; description?: string }>>;
   url: string;
   platform: SocialEmbedPlatform;
   videoOrientation?: VideoOrientation;

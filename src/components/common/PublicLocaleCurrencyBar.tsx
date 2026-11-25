@@ -83,35 +83,49 @@ export const PublicLocaleCurrencyBar: React.FC<PublicLocaleCurrencyBarProps> = (
           </button>
 
           {openMenu === 'lang' && (
-            <div
-              role="menu"
-              className={`absolute top-full mt-2 ${isRtl ? 'left-0' : 'right-0'} min-w-[165px] max-w-[calc(100vw-24px)] rounded-2xl bg-[#FFFDF8] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl p-1.5 z-[90] space-y-0.5 ${isRtl ? 'text-right' : 'text-left'}`}
-            >
-              {langOptions.map((item) => {
-                const selected = item.code === locale;
-                return (
-                  <button
-                    key={item.code}
-                    type="button"
-                    onClick={() => {
-                      onChangeLocale(item.code);
-                      setOpenMenu(null);
-                    }}
-                    className={`w-full px-2.5 py-2 rounded-xl text-xs font-black flex items-center justify-between gap-2 transition cursor-pointer ${
-                      selected
-                        ? 'bg-[#EA580C] text-white'
-                        : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#EFE9DC] dark:hover:bg-[#132040]'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span>{item.flag}</span>
-                      <span>{item.nativeName}</span>
-                    </span>
-                    {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
+            <>
+              <div
+                className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-[1px] sm:hidden"
+                onClick={() => setOpenMenu(null)}
+              />
+              <div
+                role="menu"
+                dir={isRtl ? 'rtl' : 'ltr'}
+                className={`max-sm:fixed max-sm:inset-x-3 max-sm:bottom-4 max-sm:z-[125] sm:absolute sm:top-full sm:mt-2 ${
+                  isRtl ? 'sm:left-0' : 'sm:right-0'
+                } sm:min-w-[175px] max-h-[70vh] overflow-y-auto rounded-2xl bg-[#FFFDF8] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl p-2 sm:p-1.5 z-[90] space-y-1 sm:space-y-0.5 ${
+                  isRtl ? 'text-right' : 'text-left'
+                }`}
+              >
+                <div className="sm:hidden px-2 py-1 text-[11px] font-black text-[#64748B] dark:text-[#94A3B8] border-b border-[#D4CCBC]/60 dark:border-[#22355E]">
+                  {isRtl ? 'اختر اللغة' : 'Select Language'}
+                </div>
+                {langOptions.map((item) => {
+                  const selected = item.code === locale;
+                  return (
+                    <button
+                      key={item.code}
+                      type="button"
+                      onClick={() => {
+                        onChangeLocale(item.code);
+                        setOpenMenu(null);
+                      }}
+                      className={`w-full px-2.5 py-2 rounded-xl text-xs font-black flex items-center justify-between gap-2 transition cursor-pointer ${
+                        selected
+                          ? 'bg-[#EA580C] text-white'
+                          : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#EFE9DC] dark:hover:bg-[#132040]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span>{item.flag}</span>
+                        <span>{item.nativeName}</span>
+                      </span>
+                      {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -133,37 +147,51 @@ export const PublicLocaleCurrencyBar: React.FC<PublicLocaleCurrencyBarProps> = (
           </button>
 
           {openMenu === 'curr' && (
-            <div
-              role="menu"
-              className={`absolute top-full mt-2 ${isRtl ? 'left-0' : 'right-0'} min-w-[185px] max-w-[calc(100vw-24px)] max-h-72 overflow-y-auto rounded-2xl bg-[#FFFDF8] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl p-1.5 z-[90] space-y-0.5 ${isRtl ? 'text-right' : 'text-left'}`}
-            >
-              {currOptions.map((c) => {
-                const selected = c.code === activeCurr.code;
-                return (
-                  <button
-                    key={c.code}
-                    type="button"
-                    onClick={() => {
-                      onChangeCurrency(c.code);
-                      setOpenMenu(null);
-                    }}
-                    className={`w-full px-2.5 py-2 rounded-xl text-xs font-black flex items-center justify-between gap-2 transition cursor-pointer ${
-                      selected
-                        ? 'bg-emerald-600 text-white'
-                        : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#EFE9DC] dark:hover:bg-[#132040]'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span>{c.flag}</span>
-                      <span className="truncate">{locale === 'ar' ? c.nameAr : c.nameEn}</span>
-                    </span>
-                    <span className="font-mono text-[10px] opacity-85 shrink-0">
-                      {c.symbol} · {c.code}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <>
+              <div
+                className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-[1px] sm:hidden"
+                onClick={() => setOpenMenu(null)}
+              />
+              <div
+                role="menu"
+                dir={isRtl ? 'rtl' : 'ltr'}
+                className={`max-sm:fixed max-sm:inset-x-3 max-sm:bottom-4 max-sm:z-[125] sm:absolute sm:top-full sm:mt-2 ${
+                  isRtl ? 'sm:left-0' : 'sm:right-0'
+                } sm:min-w-[195px] max-h-[70vh] sm:max-h-72 overflow-y-auto rounded-2xl bg-[#FFFDF8] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl p-2 sm:p-1.5 z-[90] space-y-1 sm:space-y-0.5 ${
+                  isRtl ? 'text-right' : 'text-left'
+                }`}
+              >
+                <div className="sm:hidden px-2 py-1 text-[11px] font-black text-[#64748B] dark:text-[#94A3B8] border-b border-[#D4CCBC]/60 dark:border-[#22355E]">
+                  {isRtl ? 'اختر العملة' : 'Select Currency'}
+                </div>
+                {currOptions.map((c) => {
+                  const selected = c.code === activeCurr.code;
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => {
+                        onChangeCurrency(c.code);
+                        setOpenMenu(null);
+                      }}
+                      className={`w-full px-2.5 py-2 rounded-xl text-xs font-black flex items-center justify-between gap-2 transition cursor-pointer ${
+                        selected
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#EFE9DC] dark:hover:bg-[#132040]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span>{c.flag}</span>
+                        <span className="truncate">{locale === 'ar' ? c.nameAr : c.nameEn}</span>
+                      </span>
+                      <span className="font-mono text-[10px] opacity-85 shrink-0">
+                        {c.symbol} · {c.code}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       )}

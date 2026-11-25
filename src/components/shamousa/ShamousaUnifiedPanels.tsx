@@ -28,7 +28,8 @@ import {
   RotateCcw,
   ChevronDown,
 } from 'lucide-react';
-import type { UserProfile } from '../../types';
+import { isUserAdmin, type UserProfile } from '../../types';
+import { useUserSubscription, hasFeature } from '../../types/subscriptions';
 import {
   MOOD_WAVE_PALETTE,
   analyzeFadfadaEntry,
@@ -70,6 +71,11 @@ import {
 } from '../../services/shamousaOrMemory';
 import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
 import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
+import { db } from '../../db/dexieDB';
+import {
+  buildProactiveTop3MarketingSuggestions,
+  type ProactiveMarketingSuggestion,
+} from '../../services/shamousaMarketingPricingEngine';
 
 export type ShamousaUnifiedPanelMode = 'daily' | 'results' | 'or360';
 type ORFilter = 'all' | ORRecommendationType;
@@ -276,10 +282,50 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
   const [showScheduleBar, setShowScheduleBar] = useState(false);
   const [memoryState, setMemoryState] = useState(() => loadShamousaOrMemory(tenantId));
   const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
+  const [proactiveTop3, setProactiveTop3] = useState<ProactiveMarketingSuggestion[]>([]);
+  const userSub = useUserSubscription(profile);
+  const isSuperAdmin = isUserAdmin(profile);
 
   useEffect(() => {
     setMemoryState(loadShamousaOrMemory(tenantId));
   }, [tenantId]);
+
+  useEffect(() => {
+    if (mode !== 'results' || !tenantId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const pkgOpts = {
+          role: (isSupplier ? 'supplier' : 'artisan') as 'artisan' | 'supplier',
+          overrideSub: userSub,
+          isAdmin: isSuperAdmin,
+        };
+        const canInv = hasFeature('inventory', profile.id, pkgOpts);
+        const [prods, mats, ords] = await Promise.all([
+          db.products.where('tenantId').equals(tenantId).toArray().catch(() => []),
+          canInv ? db.rawMaterials.where('tenantId').equals(tenantId).toArray().catch(() => []) : Promise.resolve([]),
+          db.orders.where('tenantId').equals(tenantId).toArray().catch(() => []),
+        ]);
+        if (cancelled) return;
+        const suggestions = buildProactiveTop3MarketingSuggestions({
+          accountId: profile.id,
+          packageOptions: pkgOpts,
+          isSupplier,
+          brandName: profile.brandName,
+          products: prods,
+          rawMaterials: mats,
+          orders: ords,
+          currency: profile.currencySymbol || 'ج.م',
+        });
+        setProactiveTop3(suggestions.slice(0, 3));
+      } catch {
+        if (!cancelled) setProactiveTop3([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, tenantId, profile.id, profile.brandName, profile.currencySymbol, isSupplier, userSub, isSuperAdmin]);
 
   const toggleExpandCard = (id: string) => {
     setExpandedCardIds((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -1005,6 +1051,64 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
             )}
           </div>
 
+          {/* أهم 3 توصيات تسويقية وإنتاجية استباقية (مرتّبة بالأثر ومقيدة بباقات الحساب فقط) */}
+          {proactiveTop3.length > 0 && (
+            <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3.5 sm:p-4 space-y-2.5 shadow-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <h4 className="text-xs sm:text-sm font-black text-[#12244D] dark:text-[#F8FAFC]">
+                    أهم {proactiveTop3.length} توصيات تسويقية وإنتاجية لك اليوم
+                  </h4>
+                </div>
+                <span className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">
+                  أوفلاين من بيانات حسابك
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                {proactiveTop3.slice(0, 3).map((sug, idx) => (
+                  <div
+                    key={sug.id}
+                    className="rounded-xl bg-white/80 dark:bg-[#142A5C]/80 border border-[#E5DAC6] dark:border-[#2A4588] p-2.5 flex items-start justify-between gap-2.5"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="w-5 h-5 rounded-md bg-amber-500 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-100/80 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200">
+                          {sug.badgeAr}
+                        </span>
+                        <span className="text-xs font-black text-[#12244D] dark:text-[#F8FAFC]">
+                          {sug.titleAr}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] leading-relaxed">
+                        {sug.summaryAr}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onAskShamousaAboutItem?.({
+                          id: sug.id,
+                          source: 'result',
+                          category: sug.badgeAr,
+                          title: sug.titleAr,
+                          detail: sug.summaryAr,
+                          metricsSummary: sug.queryText,
+                        })
+                      }
+                      className="shrink-0 px-2.5 py-1.5 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#091533] text-[10px] font-black transition cursor-pointer"
+                    >
+                      اسأل شموسة
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* شريط الإجراءات الجماعية السريعة: تعليم الكل كمقروء / مسح الكل / استعادة */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-1">
             <span className="text-[11px] font-black text-[#475569] dark:text-[#94A3B8]">
@@ -1229,6 +1333,15 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
   }
 
   // =================== PANEL 3: بحوث (بحوث العمليات 360°) ===================
+  const accountSub = useUserSubscription(profile);
+  const pkgRole = profile?.accountRole === 'supplier' ? 'supplier' : 'artisan';
+  const pkgAdmin = isUserAdmin(profile);
+  const pkgOpts = { role: pkgRole as 'artisan' | 'supplier', isAdmin: pkgAdmin, overrideSub: accountSub };
+  const canCostingPkg = hasFeature('costing', profile?.id || tenantId, pkgOpts);
+  const canInventoryPkg = hasFeature('inventory', profile?.id || tenantId, pkgOpts);
+  const canCrmPkg = hasFeature('sales_crm', profile?.id || tenantId, pkgOpts) || hasFeature('finance', profile?.id || tenantId, pkgOpts);
+  const canStorePkg = hasFeature('storefront', profile?.id || tenantId, pkgOpts) || hasFeature('catalog', profile?.id || tenantId, pkgOpts);
+
   const visibleOrRecs = filteredOrRecs.filter(
     (r) => !memoryState.dismissedIds.includes(r.id) && r.status !== 'dismissed'
   );
@@ -1237,75 +1350,93 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
     .map((r) => r.id);
   const visibleOrIds = visibleOrRecs.map((r) => r.id);
 
+  const availableOrFilters = (
+    [
+      { id: 'all' as const, label: 'الكل', icon: Sparkles, show: true },
+      { id: 'operational' as const, label: 'تشغيلي', icon: Package, show: canCostingPkg || canInventoryPkg },
+      { id: 'crm_retarget' as const, label: 'عملاء VIP', icon: Users, show: canCrmPkg },
+      { id: 'churn_diagnosis' as const, label: 'تشخيص العرض والمبيعات', icon: TrendingUp, show: canStorePkg || canCrmPkg },
+      { id: 'marketing' as const, label: 'تسويق وعرض', icon: Award, show: true },
+    ]
+  ).filter((f) => f.show);
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-3.5 sm:px-5 py-4 space-y-4">
       <div className="max-w-3xl mx-auto space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3 relative">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">الربح الأسبوعي الأمثل</span>
-              <button
-                type="button"
-                onClick={() =>
-                  onAskShamousaAboutItem?.({
-                    id: 'or_kpi_weekly_profit',
-                    source: 'or360',
-                    category: 'operational',
-                    title: 'الربح الأسبوعي الأمثل من بحوث العمليات',
-                    detail: `محرك بحوث العمليات حسب إن الربح الأسبوعي الأمثل لورشتك هو ${(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')} ${orReport?.currencySymbol || 'ج.م'} بناءً على ساعات التشغيل المتاحة (${orReport?.weeklyCapacityHours || 40} ساعة).`,
-                    metricsSummary: `${(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')} ${orReport?.currencySymbol || 'ج.م'}`,
-                  })
-                }
-                title="اسأل شموسة عن الرقم ده"
-                className="w-5 h-5 rounded-md bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#E2E8F0] flex items-center justify-center cursor-pointer"
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-              </button>
+          {canCostingPkg && (
+            <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3 relative">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">الربح الأسبوعي الأمثل</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAskShamousaAboutItem?.({
+                      id: 'or_kpi_weekly_profit',
+                      source: 'or360',
+                      category: 'operational',
+                      title: 'الربح الأسبوعي الأمثل من بحوث العمليات',
+                      detail: `محرك بحوث العمليات حسب إن الربح الأسبوعي الأمثل لورشتك هو ${(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')} ${orReport?.currencySymbol || 'ج.م'} بناءً على ساعات التشغيل المتاحة (${orReport?.weeklyCapacityHours || 40} ساعة).`,
+                      metricsSummary: `${(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')} ${orReport?.currencySymbol || 'ج.م'}`,
+                    })
+                  }
+                  title="اسأل شموسة عن الرقم ده"
+                  className="w-5 h-5 rounded-md bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#E2E8F0] flex items-center justify-center cursor-pointer"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="text-base font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-1">
+                {(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')}{' '}
+                <span className="text-xs">{orReport?.currencySymbol || 'ج.م'}</span>
+              </div>
             </div>
-            <div className="text-base font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-1">
-              {(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')}{' '}
-              <span className="text-xs">{orReport?.currencySymbol || 'ج.م'}</span>
+          )}
+          {canInventoryPkg && (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onNavigateView?.(isSupplier ? 'supplier_warehouse_erp' : 'materials')}
+              onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.(isSupplier ? 'supplier_warehouse_erp' : 'materials')}
+              className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
+            >
+              <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">خامات قرب النفاد</div>
+              <div className="text-base font-black font-mono tabular-nums text-[#142A5C] dark:text-[#E2E8F0] mt-1">
+                {orReport?.stats.lowStockCount || 0} خامات
+              </div>
             </div>
-          </div>
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => onNavigateView?.(isSupplier ? 'supplier_warehouse_erp' : 'materials')}
-            onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.(isSupplier ? 'supplier_warehouse_erp' : 'materials')}
-            className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
-          >
-            <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">خامات قرب النفاد</div>
-            <div className="text-base font-black font-mono tabular-nums text-[#142A5C] dark:text-[#E2E8F0] mt-1">
-              {orReport?.stats.lowStockCount || 0} خامات
+          )}
+          {canCrmPkg && (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onNavigateView?.(isSupplier ? 'supplier_customers' : 'customers')}
+              onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.(isSupplier ? 'supplier_customers' : 'customers')}
+              className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
+            >
+              <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">عملاء VIP غائبون</div>
+              <div className="text-base font-black font-mono tabular-nums text-indigo-700 dark:text-sky-300 mt-1">
+                {orReport?.stats.dormantVipCount || 0} عملاء
+              </div>
             </div>
-          </div>
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => onNavigateView?.(isSupplier ? 'supplier_customers' : 'customers')}
-            onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.(isSupplier ? 'supplier_customers' : 'customers')}
-            className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
-          >
-            <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">عملاء VIP غائبون</div>
-            <div className="text-base font-black font-mono tabular-nums text-indigo-700 dark:text-sky-300 mt-1">
-              {orReport?.stats.dormantVipCount || 0} عملاء
+          )}
+          {canStorePkg && (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onNavigateView?.('catalog')}
+              onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.('catalog')}
+              className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
+            >
+              <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">المنتج البطل</div>
+              <div className="text-xs font-black text-[#142A5C] dark:text-[#F8FAFC] mt-1.5 truncate">
+                {orReport?.heroProduct?.name || 'أضف منتجاتك'}
+              </div>
             </div>
-          </div>
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => onNavigateView?.('calculator')}
-            onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.('calculator')}
-            className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
-          >
-            <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">المنتج البطل</div>
-            <div className="text-xs font-black text-[#142A5C] dark:text-[#F8FAFC] mt-1.5 truncate">
-              {orReport?.heroProduct?.name || 'أضف منتجاتك'}
-            </div>
-          </div>
+          )}
         </div>
 
-        {orReport && orReport.productMixPlan.length > 0 && (
+        {canCostingPkg && orReport && orReport.productMixPlan.length > 0 && (
           <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3.5">
             <div className="flex items-center justify-between gap-2 mb-2.5">
               <div className="flex items-center gap-1.5 text-xs font-black text-[#12244D] dark:text-[#F8FAFC]">
@@ -1370,15 +1501,7 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 flex-wrap">
             <Filter className="w-3.5 h-3.5 text-[#64748B]" />
-            {(
-              [
-                { id: 'all', label: 'الكل', icon: Sparkles },
-                { id: 'operational', label: 'تشغيلي وهدر', icon: Package },
-                { id: 'crm_retarget', label: 'عملاء VIP', icon: Users },
-                { id: 'churn_diagnosis', label: 'تشخيص المبيعات', icon: TrendingUp },
-                { id: 'marketing', label: 'تسويق وباقات', icon: Award },
-              ] as const
-            ).map((f) => (
+            {availableOrFilters.map((f) => (
               <button
                 key={f.id}
                 type="button"

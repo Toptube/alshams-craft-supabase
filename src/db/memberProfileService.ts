@@ -154,6 +154,8 @@ export async function fetchMemberPersonalProfile(
 }
 
 export async function saveMemberPersonalProfile(payload: {
+  displayName?: string;
+  brandName?: string;
   personalAvatar?: string | null;
   brandLogoEn?: string | null;
   bioHeadline?: string;
@@ -203,6 +205,8 @@ export async function saveMemberPersonalProfile(payload: {
 export async function addMemberShowcasePost(payload: {
   imageUrl: string;
   caption: string;
+  captionEn?: string;
+  translations?: Record<string, string>;
 }): Promise<{
   success: boolean;
   post?: ShowcasePostItem;
@@ -231,7 +235,12 @@ export async function addMemberShowcasePost(payload: {
 
 export async function updateMemberShowcasePost(
   postId: string,
-  payload: { imageUrl?: string; caption: string }
+  payload: {
+    imageUrl?: string;
+    caption: string;
+    captionEn?: string;
+    translations?: Record<string, string>;
+  }
 ): Promise<{
   success: boolean;
   showcasePosts?: ShowcasePostItem[];
@@ -280,7 +289,9 @@ export async function deleteMemberShowcasePost(postId: string): Promise<{
 
 export async function addTrainerEmbeddedPost(payload: {
   title: string;
+  titleEn?: string;
   description: string;
+  descriptionEn?: string;
   url: string;
   platform: SocialEmbedPlatform;
   videoOrientation?: 'auto' | 'portrait' | 'landscape' | 'square';

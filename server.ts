@@ -91,6 +91,7 @@ const VAPID_KEYS_FILE = path.resolve(__dirname, 'data/vapid_keys.json');
 const PUSH_SUBSCRIPTIONS_FILE = path.resolve(__dirname, 'data/push_subscriptions.json');
 const SHAMOUSA_UNANSWERED_FILE = path.resolve(__dirname, 'data/shamousa_unanswered.json');
 const SHAMOUSA_CUSTOM_RULES_FILE = path.resolve(__dirname, 'data/shamousa_custom_rules.json');
+const SHAMOUSA_CUSTOM_LIBRARIES_FILE = path.resolve(__dirname, 'data/shamousa_custom_libraries.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(val?: string | null): boolean {
@@ -3400,32 +3401,149 @@ async function loadMemberProfilesMap(forceRefresh = false): Promise<Map<string, 
   return memberProfilesMapInFlight;
 }
 
+const FAMILY_PLACEHOLDER_ARTIST_NAMES = new Set([
+  '',
+  'فنان الشمساوية',
+  'فنانة الشمساوية',
+  'فنان الشامساوية',
+  'فنانة الشامساوية',
+  'فنان',
+  'فنانة',
+  'عضو الشمساوية',
+  'صاحب الورشة',
+  'صاحبة الورشة',
+  'مورد الشمساوية',
+  'مورد خامات معتمد',
+  'مورد معتمد',
+  'غير محدد',
+  'مستخدم',
+  'workshop_member',
+]);
+
+const FAMILY_PLACEHOLDER_BRAND_NAMES = new Set([
+  '',
+  'ورشة الشمساوية',
+  'متجر مورد معتمد',
+  'متجر مورد خامات',
+  'متجر فنان',
+  'الشمساوية هاند ميد',
+  'ورشة حرفية',
+]);
+
+function isPlaceholderArtisanName(val: unknown): boolean {
+  const s = String(val ?? '').trim();
+  return !s || FAMILY_PLACEHOLDER_ARTIST_NAMES.has(s);
+}
+
+function isPlaceholderBrandName(val: unknown): boolean {
+  const s = String(val ?? '').trim();
+  return !s || FAMILY_PLACEHOLDER_BRAND_NAMES.has(s);
+}
+
+function pickFirstRealName(...candidates: unknown[]): string {
+  for (const c of candidates) {
+    const s = String(c ?? '').trim();
+    if (s && !FAMILY_PLACEHOLDER_ARTIST_NAMES.has(s)) return s;
+  }
+  return '';
+}
+
+function pickFirstRealBrand(...candidates: unknown[]): string {
+  for (const c of candidates) {
+    const s = String(c ?? '').trim();
+    if (s && !FAMILY_PLACEHOLDER_BRAND_NAMES.has(s)) return s;
+  }
+  return '';
+}
+
 async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<string, any>> {
   const map = new Map<string, any>();
   const memberProfiles = await loadMemberProfilesMap();
+  const savedStoreConfigs = loadPersistentStoreConfigs();
+
+  const indexMergedEntry = (keys: string[], incoming: any) => {
+    let existing: any = null;
+    for (const k of keys) {
+      const hit = map.get(k);
+      if (hit) {
+        existing = hit;
+        break;
+      }
+    }
+    const merged = existing
+      ? {
+          ...existing,
+          ...incoming,
+          id: existing.id || incoming.id,
+          memberId: existing.memberId || incoming.memberId,
+          ownerId: incoming.ownerId || existing.ownerId,
+          email: incoming.email || existing.email,
+          storeSlug: incoming.storeSlug || existing.storeSlug,
+          accountRole:
+            incoming.accountRole === 'supplier' || existing.accountRole === 'supplier'
+              ? 'supplier'
+              : 'artisan',
+          artistName: pickFirstRealName(incoming.artistName, existing.artistName),
+          brandName: pickFirstRealBrand(incoming.brandName, existing.brandName),
+          avatarUrl: incoming.personalAvatar || existing.personalAvatar || incoming.avatarUrl || existing.avatarUrl || null,
+          personalAvatar: incoming.personalAvatar || existing.personalAvatar || null,
+          brandLogo: incoming.brandLogo || existing.brandLogo || null,
+          phone: incoming.phone || existing.phone || '',
+          medal: incoming.medal ?? existing.medal ?? null,
+          ratingStars: Number(incoming.ratingStars || existing.ratingStars || 5) || 5,
+        }
+      : incoming;
+
+    for (const k of keys) {
+      map.set(k, merged);
+    }
+  };
 
   const registerEntry = (raw: any, forceRole?: 'artisan' | 'supplier') => {
-    const wid = String(raw.id || raw.workshopId || raw.workshop_id || '').trim();
+    const wid = String(raw.id || raw.workshopId || raw.workshop_id || raw.memberId || raw.member_id || '').trim();
     const ownerId = String(raw.owner_id || raw.ownerUid || raw.owner_uid || raw.user_id || '').trim();
     const email = String(raw.email || '').trim().toLowerCase();
+    const slug = String(raw.store_slug || raw.storeSlug || '').trim().toLowerCase();
     const role: 'artisan' | 'supplier' =
       forceRole || (raw.account_role === 'supplier' || raw.accountRole === 'supplier' ? 'supplier' : 'artisan');
 
     const mp =
-      (wid && memberProfiles.get(`id:${wid}`)) ||
-      (ownerId && memberProfiles.get(`owner:${ownerId}`)) ||
+      (wid && (memberProfiles.get(`id:${wid}`) || memberProfiles.get(`owner:${wid}`))) ||
+      (ownerId && (memberProfiles.get(`owner:${ownerId}`) || memberProfiles.get(`id:${ownerId}`))) ||
       (email && memberProfiles.get(`email:${email}`)) ||
       null;
 
-    const artistName = String(
-      mp?.displayName || raw.artistName || raw.artist_name || raw.ownerName || raw.owner_name || ''
-    ).trim();
-    const brandName = String(
-      mp?.brandName || raw.brandName || raw.brand_name || raw.workshopName || raw.workshop_name || ''
-    ).trim();
+    const sc = (wid && savedStoreConfigs[wid]) || raw.store_config || raw.storeConfig || {};
+    const mpEnName = (mp?.visibility as any)?.__i18n?.translations?.en?.displayName;
+    const mpEnBrand = (mp?.visibility as any)?.__i18n?.translations?.en?.brandName;
 
-    const fallbackLabel = role === 'supplier' ? 'مورد الشمساوية' : 'فنان الشمساوية';
-    const fallbackBrand = role === 'supplier' ? 'متجر مورد معتمد' : 'ورشة الشمساوية';
+    const realArtist = pickFirstRealName(
+      mp?.displayName,
+      raw.artistName,
+      raw.artist_name,
+      raw.ownerName,
+      raw.owner_name,
+      raw.displayName,
+      raw.display_name,
+      raw.fullName,
+      raw.full_name,
+      raw.name,
+      raw.settings?.artistName,
+      raw.settings?.ownerName,
+      sc?.artistName,
+      mpEnName
+    );
+    const realBrand = pickFirstRealBrand(
+      mp?.brandName,
+      raw.brandName,
+      raw.brand_name,
+      raw.workshopName,
+      raw.workshop_name,
+      raw.storeName,
+      raw.store_name,
+      sc?.brandName,
+      mpEnBrand
+    );
 
     const brandLogo =
       raw.logoUrl ||
@@ -3436,12 +3554,14 @@ async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<st
       raw.logo_data ||
       raw.avatarUrl ||
       raw.avatar_url ||
+      mp?.brandLogo ||
       null;
 
     const rawGender =
       raw.gender ||
       raw.settings?.gender ||
       (mp as any)?.gender ||
+      (mp?.visibility as any)?.__artisanMeta?.gender ||
       null;
     const resolvedGender: 'male' | 'female' =
       rawGender === 'male' ? 'male' : rawGender === 'female' ? 'female' : 'female';
@@ -3450,9 +3570,10 @@ async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<st
       id: wid || ownerId,
       memberId: wid || ownerId,
       ownerId,
+      storeSlug: slug,
       accountRole: role,
-      artistName: artistName && artistName !== 'فنان الشمساوية' ? artistName : (role === 'supplier' ? fallbackLabel : ''),
-      brandName: brandName && brandName !== 'ورشة الشمساوية' ? brandName : (role === 'supplier' ? fallbackBrand : ''),
+      artistName: realArtist,
+      brandName: realBrand,
       gender: resolvedGender,
       country: raw.country || mp?.country || 'مصر',
       phone: mp?.phone || raw.phoneNumber || raw.phone || '',
@@ -3464,9 +3585,22 @@ async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<st
       ratingStars: Number(raw.ratingStars || raw.rating_stars || 5) || 5,
       email,
     };
-    if (wid) map.set(`id:${wid}`, normalized);
-    if (ownerId) map.set(`owner:${ownerId}`, normalized);
-    if (email) map.set(`email:${email}`, normalized);
+
+    const keys: string[] = [];
+    if (wid) {
+      keys.push(`id:${wid}`);
+      if (wid.toLowerCase() !== wid) keys.push(`id:${wid.toLowerCase()}`);
+    }
+    if (ownerId) {
+      keys.push(`owner:${ownerId}`);
+      if (ownerId.toLowerCase() !== ownerId) keys.push(`owner:${ownerId.toLowerCase()}`);
+    }
+    if (email) keys.push(`email:${email}`);
+    if (slug) keys.push(`slug:${slug}`);
+
+    if (keys.length > 0) {
+      indexMergedEntry(keys, normalized);
+    }
   };
 
   for (const w of loadPersistentWorkshops()) {
@@ -3490,6 +3624,27 @@ async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<st
   } catch {
     // fallback to local list already loaded
   }
+
+  // Register any standalone member_profiles rows (or enrich existing entries with member_profiles data)
+  for (const [k, mp] of memberProfiles.entries()) {
+    if (!k.startsWith('id:')) continue;
+    registerEntry(
+      {
+        id: mp.memberId,
+        owner_uid: mp.ownerUid,
+        email: mp.email,
+        store_slug: mp.storeSlug,
+        account_role: mp.accountRole,
+        artist_name: mp.displayName,
+        brand_name: mp.brandName,
+        logo_url: mp.personalAvatar || mp.brandLogo,
+        phone: mp.phone,
+        country: mp.country,
+      },
+      mp.accountRole === 'supplier' ? 'supplier' : 'artisan'
+    );
+  }
+
   return map;
 }
 
@@ -3572,8 +3727,14 @@ function enrichFamilyRecord(raw: any, dirMap: Map<string, any>) {
     };
   }
 
+  const widLower = wid.toLowerCase();
   const profileMatch =
-    (wid && (dirMap.get(`id:${wid}`) || dirMap.get(`owner:${wid}`))) ||
+    (wid &&
+      (dirMap.get(`id:${wid}`) ||
+        dirMap.get(`id:${widLower}`) ||
+        dirMap.get(`owner:${wid}`) ||
+        dirMap.get(`owner:${widLower}`) ||
+        dirMap.get(`slug:${widLower}`))) ||
     (email && dirMap.get(`email:${email}`)) ||
     null;
 
@@ -3584,14 +3745,10 @@ function enrichFamilyRecord(raw: any, dirMap: Map<string, any>) {
       ? 'supplier'
       : 'artisan';
 
+  const resolvedBrand = pickFirstRealBrand(profileMatch?.brandName, rawBrand);
   const resolvedArtist =
-    profileMatch?.artistName ||
-    (rawArtist && rawArtist !== 'فنان الشمساوية' ? rawArtist : '') ||
+    pickFirstRealName(profileMatch?.artistName, rawArtist, resolvedBrand) ||
     (resolvedRole === 'supplier' ? 'مورد خامات معتمد' : 'فنان الشمساوية');
-  const resolvedBrand =
-    profileMatch?.brandName ||
-    (rawBrand && rawBrand !== 'ورشة الشمساوية' ? rawBrand : '') ||
-    (resolvedRole === 'supplier' ? 'متجر مورد معتمد' : 'ورشة الشمساوية');
 
   return {
     ...raw,
@@ -3674,17 +3831,10 @@ async function resolveFamilyAuthorContext(req: AuthenticatedRequest, client: Sup
     ''
   ).trim();
 
+  const resolvedBrand = pickFirstRealBrand(profileMatch?.brandName, clientBrand, metaBrand);
   const resolvedArtist =
-    profileMatch?.artistName ||
-    (clientArtist && clientArtist !== 'فنان الشمساوية' ? clientArtist : '') ||
-    (metaArtist && metaArtist !== 'فنان الشمساوية' ? metaArtist : '') ||
+    pickFirstRealName(profileMatch?.artistName, clientArtist, metaArtist, resolvedBrand) ||
     (resolvedRole === 'supplier' ? 'مورد خامات معتمد' : 'فنان الشمساوية');
-
-  const resolvedBrand =
-    profileMatch?.brandName ||
-    (clientBrand && clientBrand !== 'ورشة الشمساوية' ? clientBrand : '') ||
-    (metaBrand && metaBrand !== 'ورشة الشمساوية' ? metaBrand : '') ||
-    (resolvedRole === 'supplier' ? 'متجر مورد معتمد' : 'ورشة الشمساوية');
 
   return {
     isSuperAdmin: false,
@@ -4746,6 +4896,40 @@ app.post('/api/shamousa/unanswered', requireAuth, (req: AuthenticatedRequest, re
 app.get('/api/shamousa/custom-rules', requireAuth, (_req: AuthenticatedRequest, res: Response) => {
   const rules = readJsonArray(SHAMOUSA_CUSTOM_RULES_FILE);
   res.json({ rules });
+});
+
+app.get('/api/shamousa/custom-libraries', requireAuth, (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (fs.existsSync(SHAMOUSA_CUSTOM_LIBRARIES_FILE)) {
+      const raw = fs.readFileSync(SHAMOUSA_CUSTOM_LIBRARIES_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      res.json({ ok: true, store: parsed && typeof parsed === 'object' ? parsed : null });
+      return;
+    }
+  } catch (err: any) {
+    console.warn('[Shamousa Custom Libraries Read Warning]:', err?.message);
+  }
+  res.json({ ok: true, store: null });
+});
+
+app.post('/api/admin/shamousa/custom-libraries', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'إضافة وتعديل مكتبات شموسة متاحة للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const incoming = req.body?.store;
+    if (!incoming || typeof incoming !== 'object') {
+      res.status(400).json({ error: 'بيانات المكتبة غير صالحة' });
+      return;
+    }
+    writeJsonData(SHAMOUSA_CUSTOM_LIBRARIES_FILE, incoming);
+    res.json({ ok: true, updatedAt: Date.now() });
+  } catch (err: any) {
+    console.warn('[Shamousa Custom Libraries Save Warning]:', err?.message);
+    res.status(500).json({ error: 'تعذر حفظ مكتبات شموسة على السيرفر' });
+  }
 });
 
 app.get('/api/admin/shamousa/unanswered', requireAuth, (req: AuthenticatedRequest, res: Response) => {
@@ -8963,8 +9147,16 @@ async function buildResolvedMemberProfileForViewer(
     ownerUid: canonical?.ownerUid || mp?.ownerUid || '',
     email: canonical?.email || mp?.email || '',
     accountRole: canonical?.accountRole || mp?.accountRole || 'artisan',
-    displayName: mp?.displayName || canonical?.displayName || 'عضو الشمساوية',
-    brandName: mp?.brandName || canonical?.brandName || '',
+    displayName:
+      pickFirstRealName(mp?.displayName, canonical?.displayName, i18nMeta?.translations?.en?.displayName) ||
+      mp?.displayName ||
+      canonical?.displayName ||
+      'عضو الشمساوية',
+    brandName:
+      pickFirstRealBrand(mp?.brandName, canonical?.brandName, i18nMeta?.translations?.en?.brandName) ||
+      mp?.brandName ||
+      canonical?.brandName ||
+      '',
     familyNickname: mp?.familyNickname || canonical?.familyNickname || '',
     gender:
       (artisanMeta as any)?.gender === 'male' || (artisanMeta as any)?.gender === 'female'
@@ -9158,7 +9350,9 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
       display_name: body.displayName !== undefined
         ? String(body.displayName).trim()
         : (existingMp?.displayName || existingCanon?.displayName || ''),
-      brand_name: existingCanon?.brandName || existingMp?.brandName || '',
+      brand_name: body.brandName !== undefined
+        ? String(body.brandName).trim()
+        : (existingMp?.brandName || existingCanon?.brandName || ''),
       family_nickname: body.familyNickname !== undefined
         ? String(body.familyNickname).trim()
         : (existingMp?.familyNickname || existingCanon?.familyNickname || ''),
@@ -9225,16 +9419,18 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         configs[memberId] = { ...(configs[memberId] || {}), artistStory: record.story_text, updatedAt: nowIso };
         savePersistentStoreConfigs(configs);
       }
-      // Sync unified photo / contact / gender back to workshops (local + Supabase)
+      // Sync unified photo / contact / gender / real name back to workshops (local + Supabase)
       try {
         const wsList = loadPersistentWorkshops();
         const wsIdx = wsList.findIndex((w: any) => w.id === memberId || w.workshopId === memberId);
+        const realDisplayName = pickFirstRealName(record.display_name, body.translations?.en?.displayName);
         if (wsIdx >= 0) {
           wsList[wsIdx] = {
             ...wsList[wsIdx],
             ...(body.personalAvatar !== undefined ? { logo_data: unifiedAvatar || '', logoUrl: unifiedAvatar || '' } : {}),
             ...(body.phone !== undefined ? { phone: record.phone, phone_number: record.phone } : {}),
             ...(body.gender === 'male' || body.gender === 'female' ? { gender: body.gender } : {}),
+            ...(body.displayName !== undefined && realDisplayName ? { artist_name: realDisplayName, artistName: realDisplayName } : {}),
             updated_at: nowIso,
           };
           savePersistentWorkshops(wsList);
@@ -9243,6 +9439,7 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         if (body.personalAvatar !== undefined) wsPatch.logo_data = unifiedAvatar || '';
         if (body.phone !== undefined) wsPatch.phone = record.phone;
         if (body.gender === 'male' || body.gender === 'female') wsPatch.gender = body.gender;
+        if (body.displayName !== undefined && realDisplayName) wsPatch.artist_name = realDisplayName;
         if (Object.keys(wsPatch).length > 0) {
           await supabaseAdminClient.from('workshops').update(wsPatch).eq('id', memberId);
         }
@@ -9263,10 +9460,14 @@ app.post('/api/member-profile/showcase', requireAuth, async (req: AuthenticatedR
 
     const imageUrl = String(req.body?.imageUrl || '').trim();
     const caption = String(req.body?.caption || '').trim().slice(0, 600);
+    const captionEn = String(req.body?.captionEn || '').trim().slice(0, 600);
+    const rawTranslations = req.body?.translations && typeof req.body.translations === 'object' ? req.body.translations : undefined;
     if (!imageUrl) {
       return res.status(400).json({ error: 'يرجى اختيار صورة للمنشور أولاً' });
     }
 
+    const mpMap = await loadMemberProfilesMap();
+    const existingMp = mpMap.get(`id:${memberId}`);
     const currentFull = await buildResolvedMemberProfileForViewer(memberId, 'owner', true);
     const currentPosts: any[] = Array.isArray(currentFull?.showcasePosts) ? currentFull.showcasePosts : [];
 
@@ -9277,14 +9478,22 @@ app.post('/api/member-profile/showcase', requireAuth, async (req: AuthenticatedR
     }
 
     const nowIso = new Date().toISOString();
-    const newPost = {
+    const newPost: any = {
       id: `sc_${crypto.randomUUID().slice(0, 12)}`,
       imageUrl,
       caption,
+      ...(captionEn ? { captionEn } : {}),
+      ...(rawTranslations ? { translations: rawTranslations } : {}),
       createdAt: nowIso,
       updatedAt: nowIso,
     };
     const nextPosts = [newPost, ...currentPosts].slice(0, MAX_SHOWCASE_POSTS);
+
+    const preservedVisibility: any = {
+      ...normalizeMemberVisibility(currentFull?.visibility),
+      ...((existingMp?.visibility as any)?.__artisanMeta ? { __artisanMeta: (existingMp?.visibility as any).__artisanMeta } : {}),
+      ...((existingMp?.visibility as any)?.__i18n ? { __i18n: (existingMp?.visibility as any).__i18n } : {}),
+    };
 
     const record = {
       member_id: memberId,
@@ -9304,7 +9513,7 @@ app.post('/api/member-profile/showcase', requireAuth, async (req: AuthenticatedR
       store_slug: currentFull?.storeSlug || '',
       crafts_labels: currentFull?.craftsLabels || [],
       showcase_posts: nextPosts,
-      profile_visibility: normalizeMemberVisibility(currentFull?.visibility),
+      profile_visibility: preservedVisibility,
       updated_at: nowIso,
     };
 
@@ -9321,6 +9530,8 @@ app.put('/api/member-profile/showcase/:postId', requireAuth, async (req: Authent
     if (!memberId) return res.status(400).json({ error: 'تعذر تحديد الحساب المطلوب' });
 
     const postId = String(req.params.postId || '').trim();
+    const mpMap = await loadMemberProfilesMap();
+    const existingMp = mpMap.get(`id:${memberId}`);
     const currentFull = await buildResolvedMemberProfileForViewer(memberId, 'owner', true);
     const currentPosts: any[] = Array.isArray(currentFull?.showcasePosts) ? currentFull.showcasePosts : [];
     const targetIdx = currentPosts.findIndex((p: any) => p.id === postId);
@@ -9335,7 +9546,19 @@ app.put('/api/member-profile/showcase/:postId', requireAuth, async (req: Authent
       ...nextPosts[targetIdx],
       imageUrl: req.body?.imageUrl ? String(req.body.imageUrl).trim() : nextPosts[targetIdx].imageUrl,
       caption: req.body?.caption !== undefined ? String(req.body.caption).trim().slice(0, 600) : nextPosts[targetIdx].caption,
+      ...(req.body?.captionEn !== undefined
+        ? { captionEn: String(req.body.captionEn).trim().slice(0, 600) }
+        : {}),
+      ...(req.body?.translations && typeof req.body.translations === 'object'
+        ? { translations: req.body.translations }
+        : {}),
       updatedAt: nowIso,
+    };
+
+    const preservedVisibility: any = {
+      ...normalizeMemberVisibility(currentFull?.visibility),
+      ...((existingMp?.visibility as any)?.__artisanMeta ? { __artisanMeta: (existingMp?.visibility as any).__artisanMeta } : {}),
+      ...((existingMp?.visibility as any)?.__i18n ? { __i18n: (existingMp?.visibility as any).__i18n } : {}),
     };
 
     const record = {
@@ -9356,7 +9579,7 @@ app.put('/api/member-profile/showcase/:postId', requireAuth, async (req: Authent
       store_slug: currentFull?.storeSlug || '',
       crafts_labels: currentFull?.craftsLabels || [],
       showcase_posts: nextPosts,
-      profile_visibility: normalizeMemberVisibility(currentFull?.visibility),
+      profile_visibility: preservedVisibility,
       updated_at: nowIso,
     };
 
@@ -9373,10 +9596,18 @@ app.delete('/api/member-profile/showcase/:postId', requireAuth, async (req: Auth
     if (!memberId) return res.status(400).json({ error: 'تعذر تحديد الحساب المطلوب' });
 
     const postId = String(req.params.postId || '').trim();
+    const mpMap = await loadMemberProfilesMap();
+    const existingMp = mpMap.get(`id:${memberId}`);
     const currentFull = await buildResolvedMemberProfileForViewer(memberId, 'owner', true);
     const currentPosts: any[] = Array.isArray(currentFull?.showcasePosts) ? currentFull.showcasePosts : [];
     const nextPosts = currentPosts.filter((p: any) => p.id !== postId);
     const nowIso = new Date().toISOString();
+
+    const preservedVisibility: any = {
+      ...normalizeMemberVisibility(currentFull?.visibility),
+      ...((existingMp?.visibility as any)?.__artisanMeta ? { __artisanMeta: (existingMp?.visibility as any).__artisanMeta } : {}),
+      ...((existingMp?.visibility as any)?.__i18n ? { __i18n: (existingMp?.visibility as any).__i18n } : {}),
+    };
 
     const record = {
       member_id: memberId,
@@ -9396,7 +9627,7 @@ app.delete('/api/member-profile/showcase/:postId', requireAuth, async (req: Auth
       store_slug: currentFull?.storeSlug || '',
       crafts_labels: currentFull?.craftsLabels || [],
       showcase_posts: nextPosts,
-      profile_visibility: normalizeMemberVisibility(currentFull?.visibility),
+      profile_visibility: preservedVisibility,
       updated_at: nowIso,
     };
 
@@ -9438,7 +9669,11 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
     }
 
     const title = String(req.body?.title || '').trim().slice(0, 140);
+    const titleEn = String(req.body?.titleEn || '').trim().slice(0, 140);
     const description = String(req.body?.description || '').trim().slice(0, 1000);
+    const descriptionEn = String(req.body?.descriptionEn || '').trim().slice(0, 1000);
+    const effectiveTitle = title || titleEn;
+    const effectiveDesc = description || descriptionEn;
     const url = String(req.body?.url || '').trim().slice(0, 600);
     const platform = String(req.body?.platform || 'youtube').trim();
     const rawOrientation = String(req.body?.videoOrientation || 'auto').trim();
@@ -9456,7 +9691,7 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
     };
     const publishToFamily = req.body?.publishToFamily !== false;
 
-    if (!title) return res.status(400).json({ error: 'يرجى كتابة عنوان الشرح أو المنشور' });
+    if (!effectiveTitle) return res.status(400).json({ error: 'يرجى كتابة عنوان الشرح بالعربي أو بالإنجليزي' });
     if (!url || !/^https?:\/\//i.test(url)) {
       return res.status(400).json({ error: 'يرجى لصق رابط صحيح يبدأ بـ https:// لمنصة التواصل' });
     }
@@ -9493,7 +9728,8 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
       const client = getDbClient(req);
       const author = await resolveFamilyAuthorContext(req, client);
       const embedTag = JSON.stringify({
-        title,
+        title: effectiveTitle,
+        ...(titleEn ? { titleEn } : {}),
         url,
         platform,
         videoOrientation,
@@ -9504,8 +9740,8 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
       });
       const visibleBody = [
         `🎓 درس وشرح جديد من ${expertNoun}: ${currentFull?.displayName || author.authorName}`,
-        `📌 ${title}`,
-        description || '',
+        `📌 ${effectiveTitle}`,
+        effectiveDesc || '',
       ]
         .filter(Boolean)
         .join('\n');
@@ -9516,8 +9752,8 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
         id: familyPostId,
         workshop_id: author.workshopId || memberId,
         author_email: author.email || email,
-        author_name: currentFull?.displayName || author.authorName || expertShort,
-        brand_name: currentFull?.brandName || author.brandName || '',
+        author_name: pickFirstRealName(currentFull?.displayName, author.authorName) || expertShort,
+        brand_name: pickFirstRealBrand(currentFull?.brandName, author.brandName),
         avatar_url: currentFull?.personalAvatar || author.avatarUrl || null,
         medal: currentFull?.medal || author.medal || null,
         rating_stars: currentFull?.ratingStars || author.ratingStars || 5,
@@ -9563,10 +9799,10 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
           postId,
           familyPostId,
           trainerMemberId: memberId,
-          trainerName: currentFull?.displayName || author.authorName || 'خبير',
-          brandName: currentFull?.brandName || author.brandName || '',
+          trainerName: pickFirstRealName(currentFull?.displayName, author.authorName) || 'خبير',
+          brandName: pickFirstRealBrand(currentFull?.brandName, author.brandName),
           trainerAvatar: currentFull?.personalAvatar || author.avatarUrl || null,
-          title,
+          title: effectiveTitle,
           platform,
           createdAt: nowIso,
         };
@@ -9595,12 +9831,14 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
     const newTrainerPost = {
       id: postId,
       memberId,
-      authorName: currentFull?.displayName || expertShort,
-      brandName: currentFull?.brandName || '',
+      authorName: pickFirstRealName(currentFull?.displayName) || expertShort,
+      brandName: pickFirstRealBrand(currentFull?.brandName),
       authorAvatar: currentFull?.personalAvatar || null,
       authorGender,
       title,
+      ...(titleEn ? { titleEn } : {}),
       description,
+      ...(descriptionEn ? { descriptionEn } : {}),
       url,
       platform,
       videoOrientation,

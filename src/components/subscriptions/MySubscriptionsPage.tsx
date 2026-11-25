@@ -17,8 +17,11 @@ import {
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import {
+  ALL_AI_ASSISTANT_CHOICES,
   ALL_PACKAGE_IDS,
+  AiAssistantChoice,
   SubscriptionPackageId,
+  getEffectiveAiAssistantChoices,
   saveUserSubscription,
   syncUserSubscriptionAndData,
   useSubscriptionPackagesConfig,
@@ -49,25 +52,57 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
   const [selectedIds, setSelectedIds] = useState<SubscriptionPackageId[]>(() =>
     currentSub.activePackageIds.length > 0 ? currentSub.activePackageIds : ['core_free']
   );
+  const [aiChoices, setAiChoices] = useState<AiAssistantChoice[]>(() =>
+    getEffectiveAiAssistantChoices(currentSub)
+  );
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const togglePkg = (id: SubscriptionPackageId) => {
     if (id === 'core_free') return;
     playButtonClickSound();
+    if (id === 'ai_assistants') {
+      const currentlyOn = selectedIds.includes('ai_assistants') && aiChoices.length > 0;
+      if (currentlyOn) {
+        setSelectedIds((prev) => prev.filter((x) => x !== 'ai_assistants'));
+        setAiChoices([]);
+      } else {
+        setSelectedIds((prev) => (prev.includes('ai_assistants') ? prev : [...prev, 'ai_assistants']));
+        setAiChoices([...ALL_AI_ASSISTANT_CHOICES]);
+      }
+      return;
+    }
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
+  const toggleAiAssistant = (choice: AiAssistantChoice) => {
+    playButtonClickSound();
+    setAiChoices((prev) => {
+      const next = prev.includes(choice)
+        ? prev.filter((c) => c !== choice)
+        : [...prev, choice];
+      setSelectedIds((ids) => {
+        if (next.length > 0) {
+          return ids.includes('ai_assistants') ? ids : [...ids, 'ai_assistants'];
+        }
+        return ids.filter((x) => x !== 'ai_assistants');
+      });
+      return next;
+    });
+  };
+
   const handleSelectAllFreePromo = () => {
     playSuccessSound();
     setSelectedIds([...ALL_PACKAGE_IDS]);
+    setAiChoices([...ALL_AI_ASSISTANT_CHOICES]);
   };
 
   const handleSave = async () => {
     const saved = saveUserSubscription(userId, {
       activePackageIds: selectedIds,
+      aiAssistantChoices: aiChoices,
       hasSelectedPackages: true,
       promoClaimed: true,
       syncStatus: 'syncing',
@@ -318,6 +353,70 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
                   {tagline}
                 </p>
 
+                {pkg.id === 'ai_assistants' && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="rounded-xl border border-[#EA580C]/25 dark:border-[#FBBF24]/25 bg-[#FAF6EE] dark:bg-[#0B1328] p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                        اختار المساعد اللي يناسبك (واحد بس أو الاثنين معاً):
+                      </span>
+                      <span className="text-[10px] font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                        اختيار مرن داخل نفس الباقة
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {(
+                        [
+                          {
+                            key: 'shamousa' as AiAssistantChoice,
+                            title: '☀️ شموسة مديرة أعمالك',
+                            sub: 'الأكثر طلباً · متابعة يومية وتجهيز منتجاتك ومراجعة شغلك على قد باقاتك',
+                          },
+                          {
+                            key: 'falcon' as AiAssistantChoice,
+                            title: '🦅 صقر المستشار الهندسي AI',
+                            sub: 'رؤية ذكية بالصور، دراسة سوق، واستشارات فنية وهندسية متخصصة',
+                          },
+                        ]
+                      ).map((item) => {
+                        const subChecked = aiChoices.includes(item.key);
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => toggleAiAssistant(item.key)}
+                            className={`text-right p-2.5 rounded-xl border flex items-start gap-2 transition cursor-pointer ${
+                              subChecked
+                                ? 'bg-white dark:bg-[#132040] border-[#EA580C] dark:border-[#FBBF24] shadow-xs'
+                                : 'bg-[#F7F3EA]/60 dark:bg-[#0D162E]/60 border-[#D4CCBC] dark:border-[#22355E] opacity-75 hover:opacity-100'
+                            }`}
+                          >
+                            <span
+                              className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition ${
+                                subChecked
+                                  ? 'bg-[#EA580C] text-white'
+                                  : 'border border-[#94A3B8] bg-white dark:bg-[#0A1124] text-transparent'
+                              }`}
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </span>
+                            <span className="min-w-0 space-y-0.5">
+                              <span className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                                {item.title}
+                              </span>
+                              <span className="block text-[10px] text-[#475569] dark:text-[#94A3B8] leading-snug">
+                                {item.sub}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <ul className="space-y-1.5 pt-1 border-t border-[#E5DEC9] dark:border-[#1E2E52]">
                   {highlights.map((h, i) => (
                     <li
@@ -356,6 +455,12 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
                 >
                   {pkg.isAlwaysFree
                     ? 'مفعّلة تلقائياً دائماً'
+                    : pkg.id === 'ai_assistants' && isSelected
+                    ? aiChoices.length === 2
+                      ? 'مختارة: شموسة + صقر ✓'
+                      : aiChoices[0] === 'shamousa'
+                      ? 'مختارة: شموسة فقط ✓'
+                      : 'مختارة: صقر فقط ✓'
                     : isSelected
                     ? 'مختارة للتفعيل ✓'
                     : 'اضغط للإضافة +'}
@@ -416,20 +521,54 @@ export const PackageSelectionOnboardingModal: React.FC<PackageSelectionOnboardin
   const themesCount = WORLD_STOREFRONT_THEMES_LIST.length;
 
   const [selectedIds, setSelectedIds] = useState<SubscriptionPackageId[]>([...ALL_PACKAGE_IDS]);
+  const [aiChoices, setAiChoices] = useState<AiAssistantChoice[]>([...ALL_AI_ASSISTANT_CHOICES]);
 
   if (!isOpen) return null;
 
   const togglePkg = (id: SubscriptionPackageId) => {
     if (id === 'core_free') return;
     playButtonClickSound();
+    if (id === 'ai_assistants') {
+      const currentlyOn = selectedIds.includes('ai_assistants') && aiChoices.length > 0;
+      if (currentlyOn) {
+        setSelectedIds((prev) => prev.filter((x) => x !== 'ai_assistants'));
+        setAiChoices([]);
+      } else {
+        setSelectedIds((prev) => (prev.includes('ai_assistants') ? prev : [...prev, 'ai_assistants']));
+        setAiChoices([...ALL_AI_ASSISTANT_CHOICES]);
+      }
+      return;
+    }
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
-  const handleConfirm = (idsToSave: SubscriptionPackageId[]) => {
+  const toggleAiAssistant = (choice: AiAssistantChoice) => {
+    playButtonClickSound();
+    setAiChoices((prev) => {
+      const next = prev.includes(choice)
+        ? prev.filter((c) => c !== choice)
+        : [...prev, choice];
+      setSelectedIds((ids) => {
+        if (next.length > 0) {
+          return ids.includes('ai_assistants') ? ids : [...ids, 'ai_assistants'];
+        }
+        return ids.filter((x) => x !== 'ai_assistants');
+      });
+      return next;
+    });
+  };
+
+  const handleConfirm = (idsToSave: SubscriptionPackageId[], choicesToSave?: AiAssistantChoice[]) => {
     const saved = saveUserSubscription(userId, {
       activePackageIds: idsToSave,
+      aiAssistantChoices:
+        choicesToSave !== undefined
+          ? choicesToSave
+          : idsToSave.includes('ai_assistants')
+          ? aiChoices
+          : [],
       hasSelectedPackages: true,
       promoClaimed: true,
       syncStatus: 'syncing',
@@ -462,7 +601,7 @@ export const PackageSelectionOnboardingModal: React.FC<PackageSelectionOnboardin
           </div>
           <button
             type="button"
-            onClick={() => handleConfirm([...ALL_PACKAGE_IDS])}
+            onClick={() => handleConfirm([...ALL_PACKAGE_IDS], [...ALL_AI_ASSISTANT_CHOICES])}
             className="p-1.5 rounded-lg bg-black/20 hover:bg-black/35 text-white cursor-pointer shrink-0"
             title="تفعيل الكل والدخول مباشرة"
           >
@@ -478,39 +617,77 @@ export const PackageSelectionOnboardingModal: React.FC<PackageSelectionOnboardin
             const tagline = isSupplier && pkg.supplierTaglineAr ? pkg.supplierTaglineAr : pkg.taglineAr;
 
             return (
-              <button
+              <div
                 key={pkg.id}
-                type="button"
                 onClick={() => togglePkg(pkg.id)}
-                className={`w-full text-right p-3.5 rounded-2xl border flex items-start gap-3 transition cursor-pointer ${
+                className={`w-full text-right p-3.5 rounded-2xl border space-y-2.5 transition cursor-pointer ${
                   checked
                     ? 'bg-white dark:bg-[#0F1A36] border-[#EA580C] dark:border-[#FBBF24]'
                     : 'bg-[#F2ECE1]/70 dark:bg-[#0D162E]/60 border-[#D4CCBC] dark:border-[#22355E] opacity-75'
                 }`}
               >
-                <div
-                  className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
-                    checked
-                      ? 'bg-[#EA580C] text-white'
-                      : 'border border-[#94A3B8] text-transparent'
-                  }`}
-                >
-                  {pkg.isAlwaysFree ? <User className="w-3.5 h-3.5" /> : <Check className="w-4 h-4" />}
-                </div>
-                <div className="flex-1 min-w-0 space-y-0.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                      {title}
-                    </span>
-                    <span className="text-[11px] font-black text-emerald-700 dark:text-emerald-400">
-                      {pkg.isAlwaysFree ? 'مجانية للأبد' : '0 ج.م (مجاناً لفترة محدودة)'}
-                    </span>
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                      checked
+                        ? 'bg-[#EA580C] text-white'
+                        : 'border border-[#94A3B8] text-transparent'
+                    }`}
+                  >
+                    {pkg.isAlwaysFree ? <User className="w-3.5 h-3.5" /> : <Check className="w-4 h-4" />}
                   </div>
-                  <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-relaxed">
-                    {tagline}
-                  </p>
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                        {title}
+                      </span>
+                      <span className="text-[11px] font-black text-emerald-700 dark:text-emerald-400">
+                        {pkg.isAlwaysFree ? 'مجانية للأبد' : '0 ج.م (مجاناً لفترة محدودة)'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+                      {tagline}
+                    </p>
+                  </div>
                 </div>
-              </button>
+
+                {pkg.id === 'ai_assistants' && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-[#E5DEC9] dark:border-[#1E2E52]"
+                  >
+                    {(
+                      [
+                        { key: 'shamousa' as AiAssistantChoice, label: '☀️ شموسة مديرة أعمالك (فقط أو مع صقر)' },
+                        { key: 'falcon' as AiAssistantChoice, label: '🦅 صقر المستشار الهندسي AI' },
+                      ]
+                    ).map((item) => {
+                      const subOn = aiChoices.includes(item.key);
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => toggleAiAssistant(item.key)}
+                          className={`p-2 rounded-xl border text-right flex items-center gap-2 text-xs font-black transition cursor-pointer ${
+                            subOn
+                              ? 'bg-[#FAF6EE] dark:bg-[#132040] border-[#EA580C] dark:border-[#FBBF24] text-[#0C1427] dark:text-[#F7F3EA]'
+                              : 'bg-transparent border-[#D4CCBC] dark:border-[#22355E] text-[#64748B] opacity-75'
+                          }`}
+                        >
+                          <span
+                            className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                              subOn ? 'bg-[#EA580C] text-white' : 'border border-[#94A3B8] text-transparent'
+                            }`}
+                          >
+                            <Check className="w-3 h-3" />
+                          </span>
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -519,7 +696,10 @@ export const PackageSelectionOnboardingModal: React.FC<PackageSelectionOnboardin
         <div className="p-4 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#F2ECE1] dark:bg-[#0D162E] flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
           <button
             type="button"
-            onClick={() => setSelectedIds([...ALL_PACKAGE_IDS])}
+            onClick={() => {
+              setSelectedIds([...ALL_PACKAGE_IDS]);
+              setAiChoices([...ALL_AI_ASSISTANT_CHOICES]);
+            }}
             className="w-full sm:w-auto px-4 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C] flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Layers className="w-3.5 h-3.5 text-[#EA580C]" />
@@ -528,7 +708,7 @@ export const PackageSelectionOnboardingModal: React.FC<PackageSelectionOnboardin
 
           <button
             type="button"
-            onClick={() => handleConfirm(selectedIds)}
+            onClick={() => handleConfirm(selectedIds, aiChoices)}
             className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-black shadow-sm cursor-pointer"
           >
             تفعيل باقاتي ({selectedIds.length}) والدخول الآن

@@ -17,6 +17,7 @@ import {
   setStoredQuickLanguages,
   t,
 } from '../../lib/i18n';
+import { setStoredPublicLocale, PublicLocaleCode } from '../../lib/publicLocale';
 
 interface LanguageSwitcherProps {
   onOpenSettingsModal?: () => void;
@@ -68,6 +69,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({ onOpenSettin
 
   const handleSelectLanguage = (code: LanguageCode) => {
     setStoredLanguage(code);
+    setStoredPublicLocale(code as PublicLocaleCode);
     setCurrentLang(code);
     setIsOpen(false);
   };
@@ -125,129 +127,150 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({ onOpenSettin
         <Globe className={`w-4 h-4 sm:w-4.5 sm:h-4.5 transition-colors ${isOpen ? 'text-white' : 'text-amber-600 dark:text-amber-400'}`} />
       </button>
 
-      {/* Language Selection Dropdown */}
+      {/* Viewport-Safe Language Selection Sheet (Never clips or overflows on mobile RTL/LTR) */}
       {isOpen && (
-        <div className="absolute top-full mt-2 left-0 sm:left-0 sm:right-auto w-72 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl p-3 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 text-right space-y-3">
-          {/* Header */}
-          <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-stone-800">
-            <span className="text-xs font-black text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
-              <Globe className="w-4 h-4 text-amber-600" />
-              <span>{t('select_language', currentLang)}</span>
-            </span>
-            <button
-              type="button"
-              onClick={handleOpenCustomize}
-              className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-              title={t('customize_languages', currentLang)}
-            >
-              <Settings2 className="w-3 h-3" />
-              <span>{t('quick_switch', currentLang)}</span>
-            </button>
-          </div>
+        <div
+          className="fixed inset-0 z-[130] bg-black/50 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-3"
+          dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full max-w-sm max-h-[82vh] overflow-y-auto bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl p-4 shadow-2xl space-y-3 ${
+              currentLang === 'ar' ? 'text-right' : 'text-left'
+            }`}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-stone-100 dark:border-stone-800">
+              <span className="text-xs font-black text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                <Globe className="w-4 h-4 text-amber-600" />
+                <span>{t('select_language', currentLang)}</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenCustomize}
+                  className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                  title={t('customize_languages', currentLang)}
+                >
+                  <Settings2 className="w-3 h-3" />
+                  <span>{t('quick_switch', currentLang)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  aria-label="Close"
+                  className="p-1 rounded-lg text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
 
-          {/* Primary Languages Section */}
-          <div className="space-y-1">
-            <div className="text-[10px] font-black text-stone-400 dark:text-stone-500 px-1">
-              {t('primary_languages', currentLang)}
-            </div>
-            <div className="space-y-0.5">
-              {primaryLanguages.map((lang) => {
-                const isSelected = currentLang === lang.code;
-                const isQuick = quickLangs.includes(lang.code);
-                return (
-                  <button
-                    key={lang.code}
-                    type="button"
-                    onClick={() => handleSelectLanguage(lang.code)}
-                    className={`w-full px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-between cursor-pointer ${
-                      isSelected
-                        ? 'bg-amber-600 text-white font-black shadow-xs'
-                        : 'text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">{lang.flag}</span>
-                      <div className="text-right">
-                        <span>{lang.nativeName}</span>
-                        <span
-                          className={`text-[10px] ml-1.5 ${
-                            isSelected ? 'text-amber-100' : 'text-stone-400'
-                          }`}
-                        >
-                          ({lang.name})
-                        </span>
+            {/* Primary Languages Section */}
+            <div className="space-y-1">
+              <div className="text-[10px] font-black text-stone-400 dark:text-stone-500 px-1">
+                {t('primary_languages', currentLang)}
+              </div>
+              <div className="space-y-1">
+                {primaryLanguages.map((lang) => {
+                  const isSelected = currentLang === lang.code;
+                  const isQuick = quickLangs.includes(lang.code);
+                  return (
+                    <button
+                      key={lang.code}
+                      type="button"
+                      onClick={() => handleSelectLanguage(lang.code)}
+                      className={`w-full px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-600 text-white font-black shadow-xs'
+                          : 'text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{lang.flag}</span>
+                        <div>
+                          <span>{lang.nativeName}</span>
+                          <span
+                            className={`text-[10px] mx-1.5 ${
+                              isSelected ? 'text-amber-100' : 'text-stone-400'
+                            }`}
+                          >
+                            ({lang.name})
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {isQuick && (
-                        <span
-                          className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono ${
-                            isSelected
-                              ? 'bg-amber-700/60 text-white'
-                              : 'bg-stone-100 dark:bg-stone-800 text-stone-500'
-                          }`}
-                        >
-                          {t('quick_badge', currentLang)}
-                        </span>
-                      )}
-                      {isSelected && <Check className="w-4 h-4 text-white" />}
-                    </div>
-                  </button>
-                );
-              })}
+                      <div className="flex items-center gap-1.5">
+                        {isQuick && (
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono ${
+                              isSelected
+                                ? 'bg-amber-700/60 text-white'
+                                : 'bg-stone-100 dark:bg-stone-800 text-stone-500'
+                            }`}
+                          >
+                            {t('quick_badge', currentLang)}
+                          </span>
+                        )}
+                        {isSelected && <Check className="w-4 h-4 text-white" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
 
-          {/* Other Languages Section */}
-          <div className="space-y-1 pt-1 border-t border-stone-100 dark:border-stone-800">
-            <div className="text-[10px] font-black text-stone-400 dark:text-stone-500 px-1">
-              {t('other_languages', currentLang)}
-            </div>
-            <div className="space-y-0.5">
-              {otherLanguages.map((lang) => {
-                const isSelected = currentLang === lang.code;
-                const isQuick = quickLangs.includes(lang.code);
-                return (
-                  <button
-                    key={lang.code}
-                    type="button"
-                    onClick={() => handleSelectLanguage(lang.code)}
-                    className={`w-full px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-between cursor-pointer ${
-                      isSelected
-                        ? 'bg-amber-600 text-white font-black shadow-xs'
-                        : 'text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">{lang.flag}</span>
-                      <div className="text-right">
-                        <span>{lang.nativeName}</span>
-                        <span
-                          className={`text-[10px] ml-1.5 ${
-                            isSelected ? 'text-amber-100' : 'text-stone-400'
-                          }`}
-                        >
-                          ({lang.name})
-                        </span>
+            {/* Other Languages Section */}
+            <div className="space-y-1 pt-1.5 border-t border-stone-100 dark:border-stone-800">
+              <div className="text-[10px] font-black text-stone-400 dark:text-stone-500 px-1">
+                {t('other_languages', currentLang)}
+              </div>
+              <div className="space-y-1">
+                {otherLanguages.map((lang) => {
+                  const isSelected = currentLang === lang.code;
+                  const isQuick = quickLangs.includes(lang.code);
+                  return (
+                    <button
+                      key={lang.code}
+                      type="button"
+                      onClick={() => handleSelectLanguage(lang.code)}
+                      className={`w-full px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-600 text-white font-black shadow-xs'
+                          : 'text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{lang.flag}</span>
+                        <div>
+                          <span>{lang.nativeName}</span>
+                          <span
+                            className={`text-[10px] mx-1.5 ${
+                              isSelected ? 'text-amber-100' : 'text-stone-400'
+                            }`}
+                          >
+                            ({lang.name})
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {isQuick && (
-                        <span
-                          className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono ${
-                            isSelected
-                              ? 'bg-amber-700/60 text-white'
-                              : 'bg-stone-100 dark:bg-stone-800 text-stone-500'
-                          }`}
-                        >
-                          {t('quick_badge', currentLang)}
-                        </span>
-                      )}
-                      {isSelected && <Check className="w-4 h-4 text-white" />}
-                    </div>
-                  </button>
-                );
-              })}
+                      <div className="flex items-center gap-1.5">
+                        {isQuick && (
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono ${
+                              isSelected
+                                ? 'bg-amber-700/60 text-white'
+                                : 'bg-stone-100 dark:bg-stone-800 text-stone-500'
+                            }`}
+                          >
+                            {t('quick_badge', currentLang)}
+                          </span>
+                        )}
+                        {isSelected && <Check className="w-4 h-4 text-white" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>

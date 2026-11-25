@@ -25,14 +25,16 @@ import {
   readLocalMaterialStockMap,
   resolveMaterialStockValues,
 } from '../lib/materialStockUtils';
-import type {
-  CustomerRecord,
-  InvoiceRecord,
-  RawMaterialItem,
-  SavedProductRecord,
-  UserProfile,
-  WorkOrderRecord,
+import {
+  isUserAdmin,
+  type CustomerRecord,
+  type InvoiceRecord,
+  type RawMaterialItem,
+  type SavedProductRecord,
+  type UserProfile,
+  type WorkOrderRecord,
 } from '../types';
+import { hasFeature, type AccountPackageQueryOptions } from '../types/subscriptions';
 import {
   buildPostSaleFollowUpMessage,
   buildVipWhatsappMessage,
@@ -824,7 +826,9 @@ function analyzeFourAxisChurn(
   journals: DailyJournalRecord[],
   profile: UserProfile,
   currencySymbol: string,
-  tenantId: string
+  tenantId: string,
+  canCosting: boolean,
+  canOrdersOrCrm: boolean
 ): ORRecommendation[] {
   const recs: ORRecommendation[] = [];
 
@@ -837,7 +841,7 @@ function analyzeFourAxisChurn(
       recommendation_type: 'churn_diagnosis',
       categoryBadge: 'تشخيص العرض والتصوير',
       title: `${unpictured.length} منتجات بدون صور عرض جذابة`,
-      description: `في الصناعات اليدوية، الصورة تمثّل 70% من قرار الشراء الأول. وجود منتجات مثل «${unpictured[0].productName}» بدون صورة يقلّل فرص التحويل في متجرك وسوق الشمساوية. حدّث صورها بإضاءة طبيعية وخلفية هادئة الآن.`,
+      description: `في الصناعات اليدوية، الصورة الواضحة بتفرق جداً في قرار الشراء الأول. وجود منتجات مثل «${unpictured[0].productName}» بدون صورة بيقلّل فرص البيع في متجرك. حدّث صورها بإضاءة طبيعية وخلفية هادية الآن.`,
       metricsSummary: `محور التصوير • ${unpictured.length} منتج بحاجة لصور`,
       action_payload: {
         actionKind: 'open_view',
@@ -851,9 +855,11 @@ function analyzeFourAxisChurn(
     });
   }
 
-  // المحور 2: فجوة التسعير مقابل متوسط الورشة/السوق
-  const pricedProducts = products.filter((p) => getProductUnitPrice(p) > 0 && getProductUnitCost(p) > 0);
-  if (pricedProducts.length >= 2) {
+  // المحور 2: فجوة التسعير مقابل التكلفة (يعمل فقط لو باقة التكاليف مفعّلة والمنتج له تكلفة حقيقية)
+  const pricedProducts = canCosting
+    ? products.filter((p) => getProductUnitPrice(p) > 0 && getProductUnitCost(p) > 0)
+    : [];
+  if (canCosting && pricedProducts.length >= 2) {
     const underMargin = pricedProducts.find((p) => {
       const price = getProductUnitPrice(p);
       const cost = getProductUnitCost(p);
@@ -885,7 +891,8 @@ function analyzeFourAxisChurn(
     }
   }
 
-  // المحور 3: تأخير التسليم والشحن (ربط الطلبات باليوميات)
+  // المحور 3: تأخير التسليم والشحن (يعمل فقط لو الأوردرات أو العملاء مفتوحة)
+  if (!canOrdersOrCrm) return recs;
   const shippingJournalHits = journals.filter((j) => (j.extracted_tags || []).includes('تأخير_الشحن')).length;
   const overdueOrders = orders.filter((o) => {
     if (!o.deliveryDate) return false;
@@ -965,7 +972,9 @@ function analyzeMarketingMixAndBundles(
   orders: InvoiceRecord[],
   profile: UserProfile,
   currencySymbol: string,
-  tenantId: string
+  tenantId: string,
+  canCosting: boolean,
+  canInventory: boolean
 ): {
   heroProduct: OROverviewReport['heroProduct'];
   recs: ORRecommendation[];
@@ -984,12 +993,17 @@ function analyzeMarketingMixAndBundles(
   const scored = products
     .map((p) => {
       const price = getProductUnitPrice(p);
-      const cost = getProductUnitCost(p);
-      const marginPct = price > 0 ? Math.round(((price - cost) / price) * 100) : 30;
+      const rawCost = Number(p.costPrice || p.output?.unifiedBreakdown?.totalUnitCost || 0);
+      const hasRealCost = canCosting && rawCost > 0 && price > 0;
+      const cost = hasRealCost ? rawCost : 0;
+      const marginPct = hasRealCost ? Math.round(((price - cost) / price) * 100) : 0;
       const velocity = (salesByProduct.get(p.id) || salesByProduct.get(p.productName) || 0) + (p.inStore ? 1 : 0);
-      const photoBonus = p.imageUrl ? 12 : 0;
-      const score = Math.min(100, Math.round(marginPct * 0.9 + velocity * 14 + photoBonus));
-      return { p, price, cost, marginPct, velocity, score };
+      const photoBonus = p.imageUrl ? 22 : 0;
+      const descBonus = ((p.storeDescription || p.input?.personalNotes || '') as string).trim().length >= 30 ? 15 : 0;
+      const score = hasRealCost
+        ? Math.min(100, Math.round(marginPct * 0.9 + velocity * 14 + photoBonus * 0.55))
+        : Math.min(100, Math.round(35 + velocity * 16 + photoBonus + descBonus));
+      return { p, price, cost, hasRealCost, marginPct, velocity, score };
     })
     .sort((a, b) => b.score - a.score);
 
@@ -997,7 +1011,7 @@ function analyzeMarketingMixAndBundles(
   const heroProduct: OROverviewReport['heroProduct'] = best
     ? {
         name: best.p.productName,
-        marginPercent: best.marginPct,
+        marginPercent: best.hasRealCost ? best.marginPct : 0,
         retailPrice: best.price,
         score: best.score,
       }
@@ -1010,8 +1024,12 @@ function analyzeMarketingMixAndBundles(
       recommendation_type: 'marketing',
       categoryBadge: 'المنتج البطل Hero',
       title: `سلّط الضوء التسويقي على «${best.p.productName}»`,
-      description: `هو الأعلى توازناً بين هامش الربح (${best.marginPct}%) وجاذبية البيع بسعر ${best.price.toLocaleString('ar-EG')} ${currencySymbol}. اجعله في مقدمة متجرك ومنشوراتك الأسبوعية لجذب عملاء جدد بأعلى عائد.`,
-      metricsSummary: `هامش الربح: ${best.marginPct}% • مؤشر البطولة: ${best.score}/100`,
+      description: best.hasRealCost
+        ? `هو الأعلى توازناً بين هامش الربح (${best.marginPct}%) وجاذبية البيع بسعر ${best.price.toLocaleString('ar-EG')} ${currencySymbol}. اجعله في مقدمة متجرك ومنشوراتك الأسبوعية لجذب عملاء جدد.`
+        : `من أكتر القطع الجاهزة للعرض في متجرك بسعر ${best.price.toLocaleString('ar-EG')} ${currencySymbol}. اجعله في مقدمة متجرك ومنشوراتك الأسبوعية لجذب عملاء جدد.`,
+      metricsSummary: best.hasRealCost
+        ? `هامش الربح: ${best.marginPct}% • مؤشر الجاهزية: ${best.score}/100`
+        : `مؤشر جاهزية العرض: ${best.score}/100`,
       action_payload: {
         actionKind: 'open_view',
         axis: 'marketing',
@@ -1025,50 +1043,71 @@ function analyzeMarketingMixAndBundles(
     });
   }
 
-  // باقة فك الركود الذكية (دمج منتج بطيء مع المنتج البطل بأقل خصم يحافظ على الربح)
+  // باقة فك الركود الذكية — قاعدة 6.1: لا نخترع نسب خصم إلا لو باقة التكاليف مفعّلة والمنتجان لهما تكلفة حقيقية!
   if (scored.length >= 2) {
     const slowMover = scored[scored.length - 1];
     if (slowMover.p.id !== best.p.id && best.price > 0 && slowMover.price > 0) {
-      const combinedPrice = best.price + slowMover.price;
-      const combinedCost = best.cost + slowMover.cost;
-      const combinedMarginRatio = (combinedPrice - combinedCost) / combinedPrice;
-      // نختار خصماً بين 8% و 14% بشرط الحفاظ على صافي ربح >= 24%
-      const safeDiscount = Math.max(8, Math.min(14, Math.floor((combinedMarginRatio - 0.24) * 100)));
-      const bundlePrice = Math.round((combinedPrice * (1 - safeDiscount / 100)) / 5) * 5;
-      const bundleProfit = Math.max(0, bundlePrice - combinedCost);
+      if (canCosting && best.hasRealCost && slowMover.hasRealCost) {
+        const combinedPrice = best.price + slowMover.price;
+        const combinedCost = best.cost + slowMover.cost;
+        const combinedMarginRatio = (combinedPrice - combinedCost) / combinedPrice;
+        const safeDiscount = Math.max(8, Math.min(14, Math.floor((combinedMarginRatio - 0.24) * 100)));
+        const bundlePrice = Math.round((combinedPrice * (1 - safeDiscount / 100)) / 5) * 5;
+        const bundleProfit = Math.max(0, bundlePrice - combinedCost);
 
-      recs.push({
-        id: `or_bundle_${best.p.id}_${slowMover.p.id}`,
-        tenant_id: tenantId,
-        recommendation_type: 'marketing',
-        categoryBadge: 'باقة فك الركود',
-        title: `باقة ذكية: «${best.p.productName}» + «${slowMover.p.productName}»`,
-        description: `لتنشيط حركة «${slowMover.p.productName}» بدون حرق سعره، ادمجه مع المنتج البطل بخصم محسوب (${safeDiscount}%) ليصبح سعر الباقة ${bundlePrice.toLocaleString('ar-EG')} ${currencySymbol} بدلاً من ${combinedPrice.toLocaleString('ar-EG')} ${currencySymbol} مع صافي ربح مضمون ~${Math.round(bundleProfit).toLocaleString('ar-EG')} ${currencySymbol}.`,
-        metricsSummary: `خصم محسوب ${safeDiscount}% • ربح الباقة الصافي: ${Math.round(bundleProfit).toLocaleString('ar-EG')} ${currencySymbol}`,
-        action_payload: {
-          actionKind: 'apply_bundle',
-          axis: 'marketing',
-          targetView: 'store',
-          bundleDiscountPercent: safeDiscount,
-          estimatedExtraProfit: Math.round(bundleProfit),
-          buttonLabel: 'تجهيز العرض في متجري',
-        },
-        impact_score: 89,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-      });
+        recs.push({
+          id: `or_bundle_${best.p.id}_${slowMover.p.id}`,
+          tenant_id: tenantId,
+          recommendation_type: 'marketing',
+          categoryBadge: 'باقة فك الركود',
+          title: `باقة ذكية: «${best.p.productName}» + «${slowMover.p.productName}»`,
+          description: `لتنشيط حركة «${slowMover.p.productName}» بدون حرق سعره، ادمجه مع المنتج البطل بخصم محسوب (${safeDiscount}%) ليصبح سعر الباقة ${bundlePrice.toLocaleString('ar-EG')} ${currencySymbol} بدلاً من ${combinedPrice.toLocaleString('ar-EG')} ${currencySymbol} مع صافي ربح ~${Math.round(bundleProfit).toLocaleString('ar-EG')} ${currencySymbol}.`,
+          metricsSummary: `خصم محسوب ${safeDiscount}% • ربح الباقة الصافي: ${Math.round(bundleProfit).toLocaleString('ar-EG')} ${currencySymbol}`,
+          action_payload: {
+            actionKind: 'apply_bundle',
+            axis: 'marketing',
+            targetView: 'store',
+            bundleDiscountPercent: safeDiscount,
+            estimatedExtraProfit: Math.round(bundleProfit),
+            buttonLabel: 'تجهيز العرض في متجري',
+          },
+          impact_score: 89,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+        });
+      } else {
+        // بدون تكاليف: لا نخترع خصم أو هامش — نعرض فكرة الباقة ونسأل عن أقل سعر يقبل يبيع بيه
+        recs.push({
+          id: `or_bundle_nocost_${best.p.id}_${slowMover.p.id}`,
+          tenant_id: tenantId,
+          recommendation_type: 'marketing',
+          categoryBadge: 'فكرة باقة هدايا',
+          title: `فكرة باقة: «${best.p.productName}» + «${slowMover.p.productName}»`,
+          description: `تقدر تجمع «${best.p.productName}» مع «${slowMover.p.productName}» في باقة واحدة للعملاء. قول لشموسة في الشات «أقل سعر تقبل تبيع بيه كام؟» وهتبنيلك العرض بناءً على رقمك إنت.`,
+          metricsSummary: `باقة ترويجية بدون خصومات عشوائية`,
+          action_payload: {
+            actionKind: 'open_view',
+            axis: 'marketing',
+            targetView: 'store',
+            buttonLabel: 'تجهيز الباقة في متجري',
+          },
+          impact_score: 85,
+          status: 'pending',
+          created_at: new Date().toISOString(),
+        });
+      }
     }
   }
 
-  // التسويق التشاركي أو تنبيه الموردين B2B
-  if (profile.accountRole === 'supplier') {
+  // التسويق التشاركي (بدون ذكر خامات أو خصومات لو باقة المخازن أو التكاليف مقفولة)
+  if (profile.accountRole === 'supplier' && canInventory) {
     recs.push({
       id: `or_b2b_supplier_${tenantId}`,
       tenant_id: tenantId,
       recommendation_type: 'marketing',
       categoryBadge: 'فرصة توريد B2B',
-      title: `حملة باقات جملة للورش القريبة في ${profile.governorate || 'محافظتك'}`,
-      description: `بصفتك مورداً داخل منظومة الشمساوية، تجهيز "باقة توريد شهرية" بخصم كمية 7% لورش الأشغال اليدوية يزيد معدل إعادة الطلب الدوري ويضمن سيولة ثابتة.`,
+      title: `باقة توريد دورية للورش القريبة في ${profile.governorate || 'محافظتك'}`,
+      description: `بصفتك مورداً داخل منظومة الشمساوية، تجهيز "باقة توريد شهرية" لورش الأشغال اليدوية يزيد معدل إعادة الطلب الدوري.`,
       metricsSummary: `توجيه B2B • عروض الورش القريبة`,
       action_payload: {
         actionKind: 'group_buy',
@@ -1080,20 +1119,20 @@ function analyzeMarketingMixAndBundles(
       status: 'pending',
       created_at: new Date().toISOString(),
     });
-  } else {
+  } else if (profile.accountRole !== 'supplier') {
     recs.push({
       id: `or_comarketing_${tenantId}`,
       tenant_id: tenantId,
       recommendation_type: 'marketing',
-      categoryBadge: 'تعاون الورش والشراء الجماعي',
-      title: `شراء جماعي للخامات + باقة هدايا تشاركية في ${profile.governorate || 'نطاقك'}`,
-      description: `الشراء الجماعي للخامات الأساسية مع ورشتين مجاورتين يخفض تكلفة التوريد والشحن بنسبة 12%–18%، كما أن دمج منتجك مع ورشة مكملة (مثل شموع + مكرمية أو كونكريت + جلد) يضاعف جمهورك مجاناً.`,
-      metricsSummary: `وفر توريد 12%–18% • جمهور تشاركي جديد`,
+      categoryBadge: 'تعاون الورش',
+      title: `باقة هدايا تشاركية مع ورش ${profile.governorate || 'نطاقك'}`,
+      description: `دمج منتجك مع ورشة مكملة (مثل شموع + مكرمية أو كونكريت + جلد) يفتحلك جمهور جديد من غير تكلفة إعلانات إضافية.`,
+      metricsSummary: `تعاون مشترك • جمهور جديد`,
       action_payload: {
         actionKind: 'group_buy',
         axis: 'marketing',
-        targetView: 'marketplace',
-        buttonLabel: 'استكشاف ورش وموردين المنظومة',
+        targetView: 'family',
+        buttonLabel: 'التواصل مع ورش العيلة',
       },
       impact_score: 80,
       status: 'pending',
@@ -1108,46 +1147,70 @@ function analyzeMarketingMixAndBundles(
 // المحرك الرئيسي: تشغيل بحوث العمليات 360° بالكامل وتوليد التقرير الأسبوعي
 // ============================================================================
 
-export async function runFullOperationsResearch(profile: UserProfile): Promise<OROverviewReport> {
+export async function runFullOperationsResearch(
+  profile: UserProfile,
+  packageOptions?: AccountPackageQueryOptions
+): Promise<OROverviewReport> {
   const tenantId = resolveTenantId(profile);
   const currencySymbol = profile.currencySymbol || 'ج.م';
+  const accountId = profile.id || tenantId;
+  const effectivePkgOpts: AccountPackageQueryOptions = {
+    role: profile.accountRole === 'supplier' ? 'supplier' : 'artisan',
+    isAdmin: isUserAdmin(profile),
+    ...packageOptions,
+  };
 
-  // 1. سحب البيانات الحية من Dexie للمستأجر الحالي فقط (معزول تماماً)
+  const canCosting = hasFeature('costing', accountId, effectivePkgOpts);
+  const canInventory = hasFeature('inventory', accountId, effectivePkgOpts);
+  const canFinance = hasFeature('finance', accountId, effectivePkgOpts);
+  const canSalesCrm = hasFeature('sales_crm', accountId, effectivePkgOpts);
+  const canStorefront =
+    hasFeature('storefront', accountId, effectivePkgOpts) ||
+    hasFeature('catalog', accountId, effectivePkgOpts);
+  const canOrders = hasFeature('orders', accountId, effectivePkgOpts);
+
+  // 1. سحب البيانات الحية من Dexie للمستأجر الحالي فقط (فقط للباقات المفعّلة!)
   const [products, materials, customers, orders, workOrders, journals] = await Promise.all([
-    db.products.where('tenantId').equals(tenantId).toArray().catch(() => [] as SavedProductRecord[]),
-    db.rawMaterials.where('tenantId').equals(tenantId).toArray().catch(() => [] as RawMaterialItem[]),
-    db.customers.where('tenantId').equals(tenantId).toArray().catch(() => [] as CustomerRecord[]),
-    db.orders.where('tenantId').equals(tenantId).toArray().catch(() => [] as InvoiceRecord[]),
-    db.workOrders.where('tenantId').equals(tenantId).toArray().catch(() => [] as WorkOrderRecord[]),
+    canStorefront || canCosting
+      ? db.products.where('tenantId').equals(tenantId).toArray().catch(() => [] as SavedProductRecord[])
+      : Promise.resolve([] as SavedProductRecord[]),
+    canInventory
+      ? db.rawMaterials.where('tenantId').equals(tenantId).toArray().catch(() => [] as RawMaterialItem[])
+      : Promise.resolve([] as RawMaterialItem[]),
+    canSalesCrm || canFinance
+      ? db.customers.where('tenantId').equals(tenantId).toArray().catch(() => [] as CustomerRecord[])
+      : Promise.resolve([] as CustomerRecord[]),
+    canSalesCrm || canFinance || canOrders
+      ? db.orders.where('tenantId').equals(tenantId).toArray().catch(() => [] as InvoiceRecord[])
+      : Promise.resolve([] as InvoiceRecord[]),
+    canCosting || canInventory
+      ? db.workOrders.where('tenantId').equals(tenantId).toArray().catch(() => [] as WorkOrderRecord[])
+      : Promise.resolve([] as WorkOrderRecord[]),
     loadDailyJournals(tenantId),
   ]);
 
   const activeProducts = products.filter((p) => p.isActive !== false);
   const activeMaterials = materials.filter((m) => m.isActive !== false);
 
-  // 2. تشغيل خوارزميات بحوث العمليات التشغيلية (Operational OR)
+  // 2. تشغيل خوارزميات بحوث العمليات التشغيلية حسب الباقات المفعّلة فقط
   const weeklyCapacityHours = 40;
-  const { plan: productMixPlan, totalProfit: projectedWeeklyProfit } = solveWeeklyProductMix(
-    activeProducts,
-    weeklyCapacityHours
-  );
-  const { recs: eoqRecs, lowStockCount } = analyzeMaterialsEOQ(
-    activeMaterials,
-    workOrders,
-    currencySymbol,
-    tenantId
-  );
-  const { recs: wasteRecs, count: scrapOpportunitiesCount } = analyzeZeroWasteUpcycling(
-    activeProducts,
-    workOrders,
-    journals,
-    currencySymbol,
-    tenantId
-  );
-  const bottleneckRecs = analyzeBottlenecks(activeProducts, currencySymbol, tenantId);
+  const { plan: productMixPlan, totalProfit: projectedWeeklyProfit } = canCosting
+    ? solveWeeklyProductMix(activeProducts, weeklyCapacityHours)
+    : { plan: [], totalProfit: 0 };
+
+  const { recs: eoqRecs, lowStockCount } = canInventory
+    ? analyzeMaterialsEOQ(activeMaterials, workOrders, currencySymbol, tenantId)
+    : { recs: [] as ORRecommendation[], lowStockCount: 0 };
+
+  const { recs: wasteRecs, count: scrapOpportunitiesCount } =
+    canCosting && canInventory
+      ? analyzeZeroWasteUpcycling(activeProducts, workOrders, journals, currencySymbol, tenantId)
+      : { recs: [] as ORRecommendation[], count: 0 };
+
+  const bottleneckRecs = canCosting ? analyzeBottlenecks(activeProducts, currencySymbol, tenantId) : [];
 
   const mixRec: ORRecommendation[] =
-    productMixPlan.length > 0
+    canCosting && productMixPlan.length > 0
       ? [
           {
             id: `or_mix_${tenantId}`,
@@ -1173,22 +1236,37 @@ export async function runFullOperationsResearch(profile: UserProfile): Promise<O
         ]
       : [];
 
-  // 3. تشغيل خوارزميات المبيعات والعملاء والتسويق (Sales, CRM & Marketing OR)
-  const { recs: vipRecs, count: dormantVipCount } = analyzeVipRetargeting(
-    customers,
-    orders,
-    profile,
-    currencySymbol,
-    tenantId
-  );
-  const churnRecs = analyzeFourAxisChurn(activeProducts, orders, journals, profile, currencySymbol, tenantId);
-  const { heroProduct, recs: marketingRecs } = analyzeMarketingMixAndBundles(
-    activeProducts,
-    orders,
-    profile,
-    currencySymbol,
-    tenantId
-  );
+  // 3. تشغيل خوارزميات المبيعات والعملاء والتسويق حسب الباقات المفعّلة فقط
+  const { recs: vipRecs, count: dormantVipCount } =
+    canSalesCrm || canFinance
+      ? analyzeVipRetargeting(customers, orders, profile, currencySymbol, tenantId)
+      : { recs: [] as ORRecommendation[], count: 0 };
+
+  const churnRecs =
+    canStorefront || canCosting || canOrders || canSalesCrm
+      ? analyzeFourAxisChurn(
+          activeProducts,
+          orders,
+          journals,
+          profile,
+          currencySymbol,
+          tenantId,
+          canCosting,
+          canOrders || canSalesCrm
+        )
+      : [];
+
+  const { heroProduct, recs: marketingRecs } = canStorefront
+    ? analyzeMarketingMixAndBundles(
+        activeProducts,
+        orders,
+        profile,
+        currencySymbol,
+        tenantId,
+        canCosting,
+        canInventory
+      )
+    : { heroProduct: null, recs: [] as ORRecommendation[] };
 
   // دمج الحالات المحفوظة محلياً (applied / dismissed)
   const statusMap = safeJsonParse<Record<string, 'pending' | 'applied' | 'dismissed'>>(
@@ -1209,18 +1287,20 @@ export async function runFullOperationsResearch(profile: UserProfile): Promise<O
     status: statusMap[r.id] || r.status,
   }));
 
-  // لو الورشة جديدة تماماً ولسه بدون بيانات منتجات/عملاء، نقدم توصيات تأسيسية ذكية فورية
+  // توصيات تأسيسية متكيّفة 100% مع الباقات المفعّلة فقط (ممنوع ذكر أي باقة مقفولة!)
   if (allRecs.length === 0) {
-    allRecs = [
-      {
+    const onboardingRecs: ORRecommendation[] = [];
+
+    if (canCosting) {
+      onboardingRecs.push({
         id: `or_onboarding_calc_${tenantId}`,
         tenant_id: tenantId,
         recommendation_type: 'operational',
-        categoryBadge: 'انطلاقة بحوث العمليات',
-        title: 'سعّر أول 3 منتجات عشان نطلعلك «المنتج البطل» وخطة الأسبوع',
+        categoryBadge: 'انطلاقة التسعير',
+        title: 'سعّر أول 3 منتجات عشان نطلعلك خطة الأسبوع',
         description:
-          'بمجرد حفظ 3 منتجات في حاسبة التكاليف، محرك بحوث العمليات هيحسبلك أوتوماتيكياً أعلى مزيج إنتاج ربحية، ربح الساعة لكل قطعة، ونقطة إعادة طلب الخامات.',
-        metricsSummary: 'الخطوة الأولى لتفعيل التحليل الرياضي الكامل',
+          'بمجرد حفظ 3 منتجات في حاسبة التكاليف، هنقدر نطلعلك أعلى مزيج إنتاج وأفضل استغلال لوقتك.',
+        metricsSummary: 'الخطوة الأولى لتفعيل التحليل الكامل',
         action_payload: {
           actionKind: 'open_view',
           axis: 'operational',
@@ -1230,16 +1310,59 @@ export async function runFullOperationsResearch(profile: UserProfile): Promise<O
         impact_score: 93,
         status: statusMap[`or_onboarding_calc_${tenantId}`] || 'pending',
         created_at: new Date().toISOString(),
-      },
-      {
+      });
+    } else if (canStorefront) {
+      onboardingRecs.push({
+        id: `or_onboarding_store_${tenantId}`,
+        tenant_id: tenantId,
+        recommendation_type: 'marketing',
+        categoryBadge: 'انطلاقة متجرك',
+        title: 'أضف أول منتج في الكتالوج بصور واضحة ووصف جذّاب',
+        description:
+          'ابدأ بإضافة أول منتج في متجرك عشان نراجع العناوين والوصف والصور ونجهزلك بوستات جاهزة للنشر.',
+        metricsSummary: 'تجهيز عرض المتجر للعملاء',
+        action_payload: {
+          actionKind: 'open_view',
+          axis: 'marketing',
+          targetView: 'catalog',
+          buttonLabel: 'افتح الكتالوج لإضافة منتج',
+        },
+        impact_score: 92,
+        status: statusMap[`or_onboarding_store_${tenantId}`] || 'pending',
+        created_at: new Date().toISOString(),
+      });
+    } else {
+      onboardingRecs.push({
+        id: `or_onboarding_profile_${tenantId}`,
+        tenant_id: tenantId,
+        recommendation_type: 'marketing',
+        categoryBadge: 'صفحتك الشخصية',
+        title: 'كمّل قصتك ومعرض أعمالك وشارك على طبلية العيلة',
+        description:
+          'صفحتك الشخصية ومعرضك (6 أعمال) هما واجهتك وسط عيلة الشمساوية. كمّل قصتك وانشر بوست تعريفي الأسبوع ده.',
+        metricsSummary: 'الباقة الأساسية • حضور قوي في العيلة',
+        action_payload: {
+          actionKind: 'open_view',
+          axis: 'marketing',
+          targetView: 'personal_profile',
+          buttonLabel: 'افتح صفحتي الشخصية',
+        },
+        impact_score: 90,
+        status: statusMap[`or_onboarding_profile_${tenantId}`] || 'pending',
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    if (canSalesCrm) {
+      onboardingRecs.push({
         id: `or_onboarding_crm_${tenantId}`,
         tenant_id: tenantId,
         recommendation_type: 'crm_retarget',
         categoryBadge: 'تنشيط قاعدة العملاء',
-        title: 'أضف أول عملاء ورشتك لتفعيل متابعة الـ VIP التلقائية',
+        title: 'أضف أول عملاء ورشتك لتفعيل متابعة العملاء التلقائية',
         description:
-          'سجّل بيانات عملائك الحاليين أو السابقين عشان شموسة تفكّرك بيهم لما يغيبوا 30 يوم وتجهزلك رسالة واتساب دافئة بضغطة زر.',
-        metricsSummary: 'استرجاع العملاء السابقين يرفع المبيعات 35%',
+          'سجّل بيانات عملائك الحاليين أو السابقين عشان شموسة تفكّرك بيهم لما يغيبوا 30 يوم وتجهزلك رسالة واتساب دافئة.',
+        metricsSummary: 'متابعة منظمة للعملاء السابقين',
         action_payload: {
           actionKind: 'open_view',
           axis: 'crm',
@@ -1249,8 +1372,10 @@ export async function runFullOperationsResearch(profile: UserProfile): Promise<O
         impact_score: 88,
         status: statusMap[`or_onboarding_crm_${tenantId}`] || 'pending',
         created_at: new Date().toISOString(),
-      },
-    ];
+      });
+    }
+
+    allRecs = onboardingRecs;
   }
 
   // تطبيق حلقة التعلّم المتبادلة مع ذاكرة شموسة:

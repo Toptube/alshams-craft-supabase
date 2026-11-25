@@ -26,6 +26,8 @@ export interface ShowcasePostItem {
   id: string;
   imageUrl: string;
   caption: string;
+  captionEn?: string;
+  translations?: Partial<Record<PublicLocaleCode, string>>;
   createdAt: string;
   updatedAt?: string;
 }
@@ -34,6 +36,7 @@ export interface MemberProfileTranslationFields {
   displayName?: string;
   brandName?: string;
   bioHeadline?: string;
+  governorate?: string;
   storyText?: string;
 }
 

@@ -18,6 +18,7 @@ import {
   getExperienceLabelFromConfig,
   isExperienceItemVisibleFromConfig,
 } from '../types/experienceMode';
+import { hasFeature, type AccountPackageQueryOptions } from '../types/subscriptions';
 
 export interface ShamousaChatbotOption {
   id: string;
@@ -2112,14 +2113,23 @@ export function resolveShamousaLocalChatbot(
     experienceMode?: UserExperienceMode;
     state?: ShamousaConversationState;
     history?: Array<{ role: string; content: string }>;
+    accountId?: string;
+    packageOptions?: AccountPackageQueryOptions;
   }
 ): ShamousaLocalChatbotResult {
-  const { firstName, isSupplier, state } = options;
+  const { firstName, isSupplier, state, accountId, packageOptions } = options;
   const activeExperienceMode: UserExperienceMode = options.experienceMode || 'craft';
   const currentState: ShamousaConversationState = state || {};
   const nextTurnCount = (currentState.turnCount || 0) + 1;
   const normQuery = normalizeArabicChatbotText(rawQuery);
   const tokens = tokenizeArabic(rawQuery);
+
+  const canBrief = accountId ? hasFeature('executive_brief', accountId, packageOptions) : true;
+  const canCosting = accountId ? hasFeature('costing', accountId, packageOptions) : true;
+  const canInventory = accountId ? hasFeature('inventory', accountId, packageOptions) : true;
+  const canStorefront = accountId
+    ? hasFeature('storefront', accountId, packageOptions) || hasFeature('catalog', accountId, packageOptions)
+    : true;
 
   if (!normQuery) {
     return {
@@ -2132,9 +2142,16 @@ export function resolveShamousaLocalChatbot(
 
   // 1. STRICT PRIVACY GUARD — NEVER BYPASSED (Part 3 + Acceptance Tests #4 & #12)
   if (isCrossTenantOrSecretPrivacyQuery(rawQuery)) {
-    const privOpts = SHAMOUSA_PRIVACY_OPTIONS.map((o) =>
-      isSupplier && o.intentKey === 'full_brief' ? { ...o, label: 'بيانات متجري (هلخصهالك) 📋', intentKey: 'sup_full_brief' } : o
-    );
+    const privOpts: ShamousaChatbotOption[] = canBrief
+      ? SHAMOUSA_PRIVACY_OPTIONS.map((o) =>
+          isSupplier && o.intentKey === 'full_brief'
+            ? { ...o, label: 'بيانات متجري (هلخصهالك) 📋', intentKey: 'sup_full_brief' }
+            : o
+        )
+      : [
+          { id: 'priv_profile', label: 'راجع صفحتي الشخصية 👤', queryText: 'راجع صفحتي الشخصية' },
+          { id: 'priv_new_prod', label: 'جهّز منتج جديد ✨', queryText: 'منتج جديد' },
+        ];
     return {
       handled: true,
       confidence: 'high',
@@ -2147,12 +2164,24 @@ export function resolveShamousaLocalChatbot(
 
   // 2. OFF-TOPIC REDIRECTION (Part 8 + Acceptance Test #10: "اتجوز")
   if (isOffTopicQuery(normQuery)) {
-    const offOpts: ShamousaChatbotOption[] = [
-      { id: 'off_1', label: '1) هلخصهالك (الفلوس والمخزن) 💰', intentKey: isSupplier ? 'sup_full_brief' : 'full_brief' },
-      { id: 'off_2', label: '2) أسعّر منتج جديد 🧮', queryText: 'عايز أسعّر منتج' },
-      { id: 'off_3', label: '3) منظومة الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
-      { id: 'off_4', label: '4) مواعيد ومهام اليوم 📅', action: 'open_agenda' },
-    ];
+    const offOpts: ShamousaChatbotOption[] = [];
+    offOpts.push({ id: 'off_new', label: '1) جهّز منتج جديد ✨', queryText: 'منتج جديد' });
+    if (canStorefront) {
+      offOpts.push({ id: 'off_rev', label: '2) راجع منتجاتي 🔍', queryText: 'راجع منتجاتي' });
+    } else {
+      offOpts.push({ id: 'off_prof', label: '2) راجع صفحتي الشخصية 👤', queryText: 'راجع صفحتي الشخصية' });
+    }
+    if (canBrief) {
+      offOpts.push({
+        id: 'off_brief',
+        label: '3) هلخصهالك (الفلوس والمخزن) 💰',
+        intentKey: isSupplier ? 'sup_full_brief' : 'full_brief',
+      });
+    } else {
+      offOpts.push({ id: 'off_post', label: '3) اكتب لي بوست ✍️', queryText: 'اكتب لي بوست' });
+    }
+    offOpts.push({ id: 'off_4', label: '4) مواعيد ومهام اليوم 📅', action: 'open_agenda' });
+
     return {
       handled: true,
       confidence: 'high',
@@ -2197,7 +2226,11 @@ export function resolveShamousaLocalChatbot(
     const empOpts: ShamousaChatbotOption[] = [
       { id: 'emp_1', label: '1) بياناتي مش ظاهرة 🔍', queryText: 'ورشتي فاضيه' },
       { id: 'emp_2', label: '2) الشاشة بطيئة أو معلّقة 🔄', queryText: 'النسخة قديمة وبطيء' },
-      { id: 'emp_3', label: '3) مشكلة في التسعير أو الربح 🧮', queryText: 'ليه بخسر' },
+      {
+        id: 'emp_3',
+        label: canCosting ? '3) مشكلة في التسعير أو الربح 🧮' : '3) مراجعة صفحتي الشخصية 👤',
+        queryText: canCosting ? 'ليه بخسر' : 'راجع صفحتي الشخصية',
+      },
       { id: 'emp_4', label: '4) تواصل مع الدعم الفني 💬', queryText: 'ورشتي فاضيه' },
     ];
     return {
@@ -2316,7 +2349,7 @@ export function resolveShamousaLocalChatbot(
     (/(خيط|حبل|كردون|مجدول|بوليستر|خرز|ايبوكسي|شمع|صودا|خشب|جلد|قماش|ورق|كرتون|علبه)/.test(normQuery) &&
       /(كود|كوده|مم|مللي|مقاس|سمك|رقم|لون|بيج|ابيض|اسود|موحده)/.test(normQuery));
 
-  const materialMatch = matchUnifiedMaterialLocally(normQuery, tokens, firstName);
+  const materialMatch = canInventory ? matchUnifiedMaterialLocally(normQuery, tokens, firstName) : null;
   if (materialMatch && (looksLikeSpecificMaterialLookup || materialMatch.confidence === 'high')) {
     return {
       ...materialMatch,
@@ -2329,13 +2362,33 @@ export function resolveShamousaLocalChatbot(
   }
 
   // 10. SCORE ALL 34+ CORE KNOWLEDGE TOPICS (EXACT + FUZZY TYPO-TOLERANT MATCHING)
+  // فلتر الباقات المفعّلة: لا نقترح أبداً مواضيع من باقات غير مفعّلة في هذا الحساب
+  const isTopicAllowedByPackage = (topicId: string, title: string): boolean => {
+    const key = `${topicId} ${title}`;
+    if (!canCosting && /(pricing|calc|cost|archive|work_order|تسعير|تكلف|تكاليف|أرشيف|ربح|هامش|مصنعية|هالك)/.test(key)) {
+      return false;
+    }
+    if (!canInventory && /(unified|material|stock|inventory|purchas|خامات|مخزن|مخزون|مشتريات|جرد|كود خامة)/.test(key)) {
+      return false;
+    }
+    if (!canBrief && /(brief|finance|treasury|expense|invoice|sales|customer|crm|مالي|خزينة|خزنة|فاتورة|فواتير|مبيعات|عملاء|مصروف|أصول|هلخصهالك)/.test(key)) {
+      return false;
+    }
+    if (!canStorefront && /(store|catalog|market|متجر|كتالوج|سوق|نشر المنتج)/.test(key)) {
+      return false;
+    }
+    return true;
+  };
+
   const genericTopicStopWords = new Set([
     'ايه', 'ازاي', 'فين', 'كام', 'ليه', 'هو', 'هي', 'عن', 'من', 'في', 'علي', 'مع', 'ده', 'دي',
     'عايز', 'عاوز', 'عايزه', 'هل', 'ممكن', 'لو', 'بس', 'يعني', 'بتاع', 'بتاعه', 'عندي', 'عشان', 'مش', 'كل',
   ]);
   const contentTokens = tokens.filter((t) => !genericTopicStopWords.has(t));
 
-  const scoredTopics = CORE_KNOWLEDGE_TOPICS.map((topic) => {
+  const scoredTopics = CORE_KNOWLEDGE_TOPICS.filter((topic) =>
+    isTopicAllowedByPackage(topic.id, topic.title)
+  ).map((topic) => {
     let score = 0;
     let matchedKw = '';
     for (const kw of topic.keywords) {
@@ -2464,13 +2517,28 @@ export function resolveShamousaLocalChatbot(
     };
   }
 
-  // Fallback (Part 2 step 4 + step 8: mark isUnanswered: true so Super Admin can add it to dictionary!)
-  const fallbackOpts: ShamousaChatbotOption[] = [
-    { id: 'fb_brief', label: '1) موقفي المالي (هلخصهالك) 💰', intentKey: isSupplier ? 'sup_full_brief' : 'full_brief' },
-    { id: 'fb_price', label: '2) تسعير منتج خطوة بخطوة 🧮', queryText: 'عايز أسعّر منتج' },
-    { id: 'fb_um', label: '3) منظومة الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
-    { id: 'fb_live', label: '4) ابحثلي أونلاين (أيقونة شموسة 🟢)', triggerAI: true },
-  ];
+  // Fallback — اختياراته متكيّفة 100% مع باقات الحساب المفعّلة فقط
+  const fallbackOpts: ShamousaChatbotOption[] = [];
+  fallbackOpts.push({ id: 'fb_new', label: '1) تجهيز منتج جديد ✨', queryText: 'منتج جديد' });
+  if (canStorefront) {
+    fallbackOpts.push({ id: 'fb_rev', label: '2) مراجعة منتجاتي والمتجر 🔍', queryText: 'راجع منتجاتي' });
+  } else {
+    fallbackOpts.push({ id: 'fb_prof', label: '2) مراجعة صفحتي الشخصية 👤', queryText: 'راجع صفحتي الشخصية' });
+  }
+  if (canBrief) {
+    fallbackOpts.push({
+      id: 'fb_brief',
+      label: '3) موقفي المالي (هلخصهالك) 💰',
+      intentKey: isSupplier ? 'sup_full_brief' : 'full_brief',
+    });
+  } else if (canCosting) {
+    fallbackOpts.push({ id: 'fb_price', label: '3) تسعير منتج خطوة بخطوة 🧮', queryText: 'عايز أسعّر منتج' });
+  } else if (canInventory) {
+    fallbackOpts.push({ id: 'fb_um', label: '3) منظومة الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' });
+  } else {
+    fallbackOpts.push({ id: 'fb_post', label: '3) اكتب لي بوست ✍️', queryText: 'اكتب لي بوست' });
+  }
+  fallbackOpts.push({ id: 'fb_dec', label: '4) التحليل والحلول الذكية 📊', queryText: 'التحليل والحلول الذكية' });
 
   return {
     handled: true,
@@ -2479,7 +2547,7 @@ export function resolveShamousaLocalChatbot(
     matchedTopicId: 'guided_menu_fallback',
     reply:
       `ما فهمتش بالظبط يا **${firstName}**، ولا يهمك بتحصل 😊\n` +
-      `اختار الأقرب للي تقصده من هنا، أو اضغط على **صورتي اللي جنب خانة الكتابة عشان تنوّر أخضر 🟢** وهوصّللك بالبحث المباشر على الإنترنت فوراً:`,
+      `اختار الأقرب للي تحب نعمله سوا دلوقتي من هنا:`,
     options: fallbackOpts,
     nextState: { lastTopicId: 'guided_menu_fallback', lastOptions: fallbackOpts, turnCount: nextTurnCount },
   };

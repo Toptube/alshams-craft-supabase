@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { SavedProductRecord, UserProfile } from '../../types';
+import { SavedProductRecord, UserProfile, isUserAdmin } from '../../types';
 import {
   MAIN_SECTIONS,
   SUB_CRAFTS_REGISTRY,
@@ -7,6 +7,8 @@ import {
 import { tenantStorage } from '../../db/dexieDB';
 import { useTranslation } from '../../lib/i18n';
 import { buildProductLandingUrl, buildStoreUrl } from '../../lib/appRoutes';
+import { dispatchShamousaIntent } from '../../services/shamousaMarketingAndDecision';
+import { shouldShowShamousaUi, useUserSubscription } from '../../types/subscriptions';
 import {
   BookOpen,
   Search,
@@ -112,6 +114,12 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
   const [isDirectAddOpen, setIsDirectAddOpen] = useState<boolean>(() => Boolean(initialOpenDirectAdd));
   const [statusColorFilter, setStatusColorFilter] = useState<'all' | CatalogStatusColor>('all');
+  const catalogUserSub = useUserSubscription(profile);
+  const canShowShamousa = shouldShowShamousaUi(
+    catalogUserSub,
+    (profile as any)?.accountRole === 'supplier' ? 'supplier' : 'artisan',
+    isUserAdmin(profile)
+  );
 
   useEffect(() => {
     if (initialOpenDirectAdd) {
@@ -1315,6 +1323,38 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               <Store className="w-3.5 h-3.5 text-[#EA580C]" />
               <span>لوحة متجري</span>
             </button>
+          )}
+
+          {canShowShamousa && (
+            <>
+              <button
+                type="button"
+                onClick={() => dispatchShamousaIntent({ intent: 'review_products', prompt: 'راجع منتجاتي', autoSend: true })}
+                className="px-3 py-2 rounded-xl bg-[#EFE6D7] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#132960] dark:text-[#E2E8F0] border border-[#D5C7B0] dark:border-[#2C4A91] text-xs font-black transition flex items-center gap-1.5 cursor-pointer"
+                title="راجع منتجاتك مع شموسة في نفس الشات"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>راجع منتجاتي</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => dispatchShamousaIntent({ intent: 'new_product_wizard', prompt: 'منتج جديد', autoSend: true })}
+                className="px-3 py-2 rounded-xl bg-[#EFE6D7] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#132960] dark:text-[#E2E8F0] border border-[#D5C7B0] dark:border-[#2C4A91] text-xs font-black transition flex items-center gap-1.5 cursor-pointer"
+                title="جهّز عنوان ووصف وقصة منتج جديد مع شموسة"
+              >
+                <span>معالج منتج جديد</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => dispatchShamousaIntent({ intent: 'whatsapp_message', prompt: 'رسالة واتساب', autoSend: true })}
+                className="px-3 py-2 rounded-xl bg-[#EFE6D7] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#132960] dark:text-[#E2E8F0] border border-[#D5C7B0] dark:border-[#2C4A91] text-xs font-black transition flex items-center gap-1.5 cursor-pointer"
+                title="رسالة واتساب جاهزة للعملاء"
+              >
+                <span>رسالة واتساب</span>
+              </button>
+            </>
           )}
         </div>
 

@@ -510,7 +510,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     activeView === 'ai_agent' ? 'text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'
                   }`}
                 />
-                <span className="text-xs font-black truncate">المستشار الذكي (صقر & شموسة)</span>
+                <span className="text-xs font-black truncate">المستشار الهندسي صقر AI</span>
               </div>
               <ChevronLeft className="w-4 h-4 shrink-0 opacity-75" />
             </button>

@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
   ArrowRight,
   Bell,
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Edit3,
   Eye,
   EyeOff,
@@ -12,6 +15,7 @@ import {
   Home,
   Image as ImageIcon,
   Link2,
+  Loader2,
   Lock,
   Phone,
   Plus,
@@ -20,12 +24,16 @@ import {
   Sparkles,
   Store,
   Trash2,
+  Upload,
   User,
   Video,
   X,
   Globe,
 } from 'lucide-react';
-import { UserProfile } from '../../types';
+import { isUserAdmin, UserProfile } from '../../types';
+import { useUserSubscription, hasFeature } from '../../types/subscriptions';
+import { auditPersonalProfileOffline } from '../../services/shamousaProfileAdvisor';
+import { dispatchShamousaIntent } from '../../services/shamousaMarketingAndDecision';
 import {
   AudienceRole,
   AudienceRule,
@@ -70,9 +78,10 @@ import {
   pickLocalizedText,
   resolveBilingualLogo,
   PublicLocaleCode,
+  PUBLIC_LANGUAGES,
+  translateFieldsWithAI,
 } from '../../lib/publicLocale';
 import { PublicLocaleCurrencyBar } from '../common/PublicLocaleCurrencyBar';
-import { MultilingualContentStudio } from '../common/MultilingualContentStudio';
 import { MemberProfileTranslationFields } from '../../types/memberProfile';
 
 interface MemberPersonalProfileViewProps {
@@ -124,6 +133,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
 
   // Editable fields state (Owner only)
   const [personalAvatarDraft, setPersonalAvatarDraft] = useState<string | null>(null);
+  const [displayNameDraft, setDisplayNameDraft] = useState('');
+  const [brandNameDraft, setBrandNameDraft] = useState('');
   const [bioHeadlineDraft, setBioHeadlineDraft] = useState('');
   const [storyDraft, setStoryDraft] = useState('');
   const [phoneDraft, setPhoneDraft] = useState('');
@@ -145,11 +156,15 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const [translationsDraft, setTranslationsDraft] = useState<
     Partial<Record<PublicLocaleCode, MemberProfileTranslationFields>>
   >({});
+  const [translatingKey, setTranslatingKey] = useState<string | null>(null);
+  const [translateNotice, setTranslateNotice] = useState<string | null>(null);
+  const [activeExtraLang, setActiveExtraLang] = useState<PublicLocaleCode | null>(null);
 
   // Showcase Post Composer & Editor
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newPostImg, setNewPostImg] = useState('');
   const [newPostCaption, setNewPostCaption] = useState('');
+  const [newPostCaptionEn, setNewPostCaptionEn] = useState('');
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [sharedShowcaseId, setSharedShowcaseId] = useState<string | null>(null);
@@ -157,11 +172,14 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const [editingPost, setEditingPost] = useState<ShowcasePostItem | null>(null);
   const [editPostImg, setEditPostImg] = useState('');
   const [editPostCaption, setEditPostCaption] = useState('');
+  const [editPostCaptionEn, setEditPostCaptionEn] = useState('');
 
   // Expert / Trainer Embedded Social Media Post Composer
   const [trainerComposerOpen, setTrainerComposerOpen] = useState(false);
   const [trainerTitle, setTrainerTitle] = useState('');
+  const [trainerTitleEn, setTrainerTitleEn] = useState('');
   const [trainerDesc, setTrainerDesc] = useState('');
+  const [trainerDescEn, setTrainerDescEn] = useState('');
   const [trainerUrl, setTrainerUrl] = useState('');
   const [trainerPlatform, setTrainerPlatform] = useState<SocialEmbedPlatform>('youtube');
   const [trainerVideoOrientation, setTrainerVideoOrientation] = useState<VideoOrientation>('auto');
@@ -211,6 +229,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       setIsOwner(ownerFlag);
       setPreviewAs(ownerFlag ? 'owner' : callerAudience);
       setPersonalAvatarDraft(p.personalAvatar ?? null);
+      setDisplayNameDraft(p.displayName || '');
+      setBrandNameDraft(p.brandName || '');
       setBioHeadlineDraft(p.bioHeadline || '');
       setStoryDraft(p.storyText || '');
       setPhoneDraft(p.phone || '');
@@ -277,17 +297,32 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
 
   const effectiveProfile = useMemo(() => {
     if (!rawProfile) return null;
-    if (isOwner && previewAs === 'owner') return rawProfile;
+    if (isOwner && previewAs === 'owner') {
+      return {
+        ...rawProfile,
+        displayName: displayNameDraft,
+        brandName: brandNameDraft,
+        bioHeadline: bioHeadlineDraft,
+        storyText: storyDraft,
+        phone: phoneDraft,
+        governorate: govDraft,
+        personalAvatar: personalAvatarDraft,
+        translations: translationsDraft,
+      };
+    }
     const targetAudience: AudienceRole = isOwner ? (previewAs as AudienceRole) : callerAudience;
     return applyVisibilityForAudience(
       {
         ...rawProfile,
+        displayName: isOwner ? displayNameDraft : rawProfile.displayName,
+        brandName: isOwner ? brandNameDraft : rawProfile.brandName,
         visibility: isOwner ? visibilityDraft : rawProfile.visibility,
         personalAvatar: isOwner ? personalAvatarDraft : rawProfile.personalAvatar,
         bioHeadline: isOwner ? bioHeadlineDraft : rawProfile.bioHeadline,
         storyText: isOwner ? storyDraft : rawProfile.storyText,
         phone: isOwner ? phoneDraft : rawProfile.phone,
         governorate: isOwner ? govDraft : rawProfile.governorate,
+        translations: isOwner ? translationsDraft : rawProfile.translations,
       },
       targetAudience
     );
@@ -296,12 +331,15 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
     isOwner,
     previewAs,
     callerAudience,
+    displayNameDraft,
+    brandNameDraft,
     visibilityDraft,
     personalAvatarDraft,
     bioHeadlineDraft,
     storyDraft,
     phoneDraft,
     govDraft,
+    translationsDraft,
   ]);
 
   const handleUploadPersonalAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -335,6 +373,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
     setSavingProfile(true);
     setSaveFeedback(null);
     const res = await saveMemberPersonalProfile({
+      displayName: displayNameDraft.trim(),
+      brandName: brandNameDraft.trim(),
       personalAvatar: personalAvatarDraft,
       brandLogoEn: brandLogoEnDraft || null,
       bioHeadline: bioHeadlineDraft.trim(),
@@ -354,6 +394,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       playSuccessSound();
       setRawProfile(res.profile);
       const syncedPhoto = res.profile.personalAvatar || res.profile.brandLogo || '';
+      const resolvedSyncedArtist = res.profile.displayName || translationsDraft.en?.displayName || '';
       try {
         const rawLocal = localStorage.getItem('alshams_profile');
         if (rawLocal) {
@@ -362,6 +403,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
             'alshams_profile',
             JSON.stringify({
               ...parsedLocal,
+              ...(resolvedSyncedArtist ? { artistName: resolvedSyncedArtist } : {}),
               logoUrl: syncedPhoto || parsedLocal.logoUrl,
               logo_url: syncedPhoto || parsedLocal.logo_url,
               logoBase64: res.profile.personalAvatar || '',
@@ -379,6 +421,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       window.dispatchEvent(
         new CustomEvent('alshams_profile_synced', {
           detail: {
+            ...(resolvedSyncedArtist ? { artistName: resolvedSyncedArtist } : {}),
             logoUrl: syncedPhoto,
             brandName: res.profile.brandName,
             phoneNumber: res.profile.phone,
@@ -439,6 +482,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
     const res = await addMemberShowcasePost({
       imageUrl: newPostImg,
       caption: newPostCaption.trim(),
+      captionEn: newPostCaptionEn.trim() || undefined,
+      ...(newPostCaptionEn.trim() ? { translations: { en: newPostCaptionEn.trim() } } : {}),
     });
     setPostBusy(false);
     if (res.success && res.showcasePosts) {
@@ -446,6 +491,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       setRawProfile((prev) => (prev ? { ...prev, showcasePosts: res.showcasePosts! } : prev));
       setNewPostImg('');
       setNewPostCaption('');
+      setNewPostCaptionEn('');
       setIsAddOpen(false);
     } else {
       playErrorSound();
@@ -458,9 +504,15 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
     if (!editingPost) return;
     setPostBusy(true);
     setPostError(null);
+    const nextEn = editPostCaptionEn.trim();
     const res = await updateMemberShowcasePost(editingPost.id, {
       imageUrl: editPostImg || editingPost.imageUrl,
       caption: editPostCaption.trim(),
+      captionEn: nextEn,
+      translations: {
+        ...(editingPost.translations || {}),
+        ...(nextEn ? { en: nextEn } : {}),
+      },
     });
     setPostBusy(false);
     if (res.success && res.showcasePosts) {
@@ -538,8 +590,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
 
   const handlePublishTrainerPost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trainerTitle.trim()) {
-      setTrainerError('يرجى كتابة عنوان الشرح أو المنشور.');
+    if (!trainerTitle.trim() && !trainerTitleEn.trim()) {
+      setTrainerError('يرجى كتابة عنوان الشرح بالعربي أو بالإنجليزي.');
       return;
     }
     if (!trainerUrl.trim() || !/^https?:\/\//i.test(trainerUrl.trim())) {
@@ -557,7 +609,9 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
 
     const res = await addTrainerEmbeddedPost({
       title: trainerTitle.trim(),
+      titleEn: trainerTitleEn.trim() || undefined,
       description: trainerDesc.trim(),
+      descriptionEn: trainerDescEn.trim() || undefined,
       url: trainerUrl.trim(),
       platform: trainerPlatform,
       videoOrientation: trainerVideoOrientation,
@@ -578,7 +632,9 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       playSuccessSound();
       setRawProfile((prev) => (prev ? { ...prev, trainerPosts: res.trainerPosts } : prev));
       setTrainerTitle('');
+      setTrainerTitleEn('');
       setTrainerDesc('');
+      setTrainerDescEn('');
       setTrainerUrl('');
       setTrainerVideoOrientation('auto');
       setTrainerDetectedMeta(null);
@@ -610,21 +666,151 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
     effectiveProfile?.enabledLanguages,
     effectiveProfile?.defaultLanguage || 'ar'
   );
+  const isEnView = locale !== 'ar';
+
+  const updateTranslationField = (
+    targetLang: PublicLocaleCode,
+    field: keyof MemberProfileTranslationFields,
+    value: string
+  ) => {
+    setTranslationsDraft((prev) => ({
+      ...prev,
+      [targetLang]: {
+        ...(prev[targetLang] || {}),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleAutoTranslate = async (
+    busyKey: string,
+    targetLang: PublicLocaleCode,
+    fields: Record<string, string>,
+    onResult: (translated: Record<string, string>) => void,
+    sourceLang: PublicLocaleCode = 'ar'
+  ) => {
+    const clean: Record<string, string> = {};
+    Object.entries(fields).forEach(([k, v]) => {
+      if (v && v.trim()) clean[k] = v.trim();
+    });
+    if (Object.keys(clean).length === 0) {
+      setTranslateNotice(
+        sourceLang === 'en'
+          ? 'اكتب النص بالإنجليزية أولاً لتتم ترجمته إلى العربية.'
+          : 'اكتب النص بالعربي أولاً لتتم ترجمته تلقائياً.'
+      );
+      setTimeout(() => setTranslateNotice(null), 2600);
+      return;
+    }
+    setTranslatingKey(busyKey);
+    setTranslateNotice(null);
+    try {
+      const result = await translateFieldsWithAI(clean, targetLang, sourceLang);
+      if (result.success && result.translations && Object.keys(result.translations).length > 0) {
+        onResult(result.translations);
+        playSuccessSound();
+      } else {
+        playErrorSound();
+        setTranslateNotice(result.error || 'تعذرت الترجمة التلقائية حالياً، جرب مرة أخرى أو اكتبها يدوياً.');
+        setTimeout(() => setTranslateNotice(null), 3500);
+      }
+    } catch {
+      playErrorSound();
+      setTranslateNotice('تعذرت الترجمة التلقائية حالياً، جرب مرة أخرى.');
+      setTimeout(() => setTranslateNotice(null), 3500);
+    } finally {
+      setTranslatingKey(null);
+    }
+  };
+
+  const handleUploadBrandLogoEn = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: 320,
+        maxHeight: 320,
+        targetMaxKb: 55,
+        initialQuality: 0.85,
+      });
+      setBrandLogoEnDraft(compressed);
+      playSuccessSound();
+    } catch {
+      playErrorSound();
+    }
+    e.target.value = '';
+  };
+
+  const extraEnabledLanguages = useMemo<PublicLocaleCode[]>(
+    () => enabledLangsDraft.filter((l) => l !== 'ar' && l !== 'en'),
+    [enabledLangsDraft]
+  );
+
+  const availableExtraLanguagesToAdd = useMemo(
+    () => PUBLIC_LANGUAGES.filter((l) => l.code !== 'ar' && l.code !== 'en' && !enabledLangsDraft.includes(l.code)),
+    [enabledLangsDraft]
+  );
+
+  const selectedExtraLang: PublicLocaleCode | null =
+    activeExtraLang && extraEnabledLanguages.includes(activeExtraLang)
+      ? activeExtraLang
+      : extraEnabledLanguages[0] || null;
+
   const pickProfileField = (
     base: string | undefined | null,
     field: keyof MemberProfileTranslationFields
   ): string => {
     const tr = isEditMode ? translationsDraft : effectiveProfile?.translations;
-    if (!tr) return (base || '').trim();
+    const baseClean = (base || '').trim();
+    if (!tr) return baseClean;
+    const enVal = (tr.en?.[field] || '').trim();
+    if (locale === 'ar') {
+      return baseClean || enVal;
+    }
     const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
     (Object.keys(tr) as PublicLocaleCode[]).forEach((k) => {
       map[k] = tr[k]?.[field];
     });
-    return pickLocalizedText(base, map, locale);
+    return pickLocalizedText(baseClean || enVal, map, locale);
   };
+
+  const localizeCountryLabel = (country?: string): string => {
+    const raw = (country || '').trim();
+    if (!raw || !isEnView) return raw;
+    const map: Record<string, string> = {
+      'مصر': 'Egypt',
+      'جمهورية مصر العربية': 'Egypt',
+      'السعودية': 'Saudi Arabia',
+      'المملكة العربية السعودية': 'Saudi Arabia',
+      'الإمارات': 'UAE',
+      'الكويت': 'Kuwait',
+      'قطر': 'Qatar',
+      'البحرين': 'Bahrain',
+      'عمان': 'Oman',
+      'الأردن': 'Jordan',
+      'المغرب': 'Morocco',
+      'تونس': 'Tunisia',
+      'الجزائر': 'Algeria',
+      'لبنان': 'Lebanon',
+      'العراق': 'Iraq',
+    };
+    return map[raw] || raw;
+  };
+
+  const pickPostCaption = (post: ShowcasePostItem): string => {
+    if (locale === 'ar') return (post.caption || '').trim() || (post.captionEn || '').trim();
+    const translated = post.translations?.[locale];
+    if (translated && translated.trim()) return translated.trim();
+    if (post.captionEn && post.captionEn.trim()) return post.captionEn.trim();
+    return (post.caption || '').trim();
+  };
+
   const displayProfileName = pickProfileField(effectiveProfile?.displayName, 'displayName');
   const displayProfileBrand = pickProfileField(effectiveProfile?.brandName, 'brandName');
   const displayProfileHeadline = pickProfileField(effectiveProfile?.bioHeadline, 'bioHeadline');
+  const displayProfileGovernorate = pickProfileField(effectiveProfile?.governorate, 'governorate');
+  const displayProfileStory = pickProfileField(effectiveProfile?.storyText, 'storyText');
+  const displayProfileCountry = localizeCountryLabel(effectiveProfile?.country);
   const resolvedProfileBrandLogo = effectiveProfile
     ? resolveBilingualLogo(
         effectiveProfile.brandLogo,
@@ -644,6 +830,51 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const trainerPostsList = effectiveProfile?.trainerPosts || [];
   const rawTrainerCount = rawProfile?.trainerPosts?.length || 0;
 
+  // تقييم شموسة الاستباقي الأوفلاين للصفحة الشخصية (أهم حاجتين للنهاردة بحد أقصى 3 اقتراحات، مع احترام الخصوصية 100%)
+  const ownerSub = useUserSubscription(currentUserProfile || undefined);
+  const ownerPkgOpts = useMemo(
+    () => ({
+      role: ((currentUserProfile as any)?.accountRole === 'supplier' ? 'supplier' : 'artisan') as 'artisan' | 'supplier',
+      isAdmin: isUserAdmin(currentUserProfile),
+      overrideSub: ownerSub,
+    }),
+    [currentUserProfile, ownerSub]
+  );
+  const ownerAccountId = currentUserProfile?.id || targetMemberId;
+  const canOwnerShamousa = hasFeature('shamousa', ownerAccountId, ownerPkgOpts);
+  const canOwnerStorefront = hasFeature('marketing_review', ownerAccountId, ownerPkgOpts);
+
+  const proactiveProfileAudit = useMemo(() => {
+    if (!isOwner || !rawProfile || !canOwnerShamousa) return null;
+    const liveProfile: MemberPersonalProfile = {
+      ...rawProfile,
+      displayName: displayNameDraft || rawProfile.displayName,
+      brandName: brandNameDraft || rawProfile.brandName,
+      bioHeadline: bioHeadlineDraft,
+      storyText: storyDraft,
+      personalAvatar: personalAvatarDraft,
+      visibility: visibilityDraft,
+    };
+    return auditPersonalProfileOffline({
+      profile: liveProfile,
+      accountId: ownerAccountId,
+      packageOptions: ownerPkgOpts,
+    });
+  }, [
+    isOwner,
+    rawProfile,
+    displayNameDraft,
+    brandNameDraft,
+    bioHeadlineDraft,
+    storyDraft,
+    personalAvatarDraft,
+    visibilityDraft,
+    ownerAccountId,
+    ownerPkgOpts,
+    canOwnerShamousa,
+  ]);
+  const [hideProactiveCard, setHideProactiveCard] = useState(false);
+
   const contentNode = (
     <div
       className={`max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5 ${dir === 'rtl' ? 'text-right' : 'text-left'}`}
@@ -658,8 +889,12 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               onClick={onGoBack}
               className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
             >
-              <ArrowRight className="w-4 h-4 text-[#EA580C]" />
-              <span>{locale === 'ar' ? 'رجوع' : t('back_to_app')}</span>
+              {dir === 'rtl' ? (
+                <ArrowRight className="w-4 h-4 text-[#EA580C]" />
+              ) : (
+                <ArrowLeft className="w-4 h-4 text-[#EA580C]" />
+              )}
+              <span>{locale === 'ar' ? 'رجوع' : 'Back'}</span>
             </button>
           )}
           {onGoHome && (
@@ -669,7 +904,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
             >
               <Home className="w-4 h-4 text-[#EA580C]" />
-              <span>{locale === 'ar' ? 'الرئيسية' : t('back_to_app')}</span>
+              <span>{locale === 'ar' ? 'الرئيسية' : 'Home'}</span>
             </button>
           )}
           <h1 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
@@ -692,7 +927,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
             <button
               type="button"
               onClick={onClose}
-              aria-label="إغلاق"
+              aria-label={isEnView ? 'Close' : 'إغلاق'}
               className="w-9 h-9 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer hover:border-[#EA580C]"
             >
               <X className="w-4 h-4" />
@@ -705,12 +940,12 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
         <div className="py-16 flex flex-col items-center justify-center gap-3">
           <div className="w-9 h-9 border-4 border-[#EA580C] border-t-transparent rounded-full animate-spin" />
           <p className="text-xs font-bold text-[#475569] dark:text-[#CBD5E1]">
-            جاري تحميل الصفحة الشخصية...
+            {isEnView ? 'Loading profile...' : 'جاري تحميل الصفحة الشخصية...'}
           </p>
         </div>
       ) : errorMsg || !effectiveProfile || !rawProfile ? (
         <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 p-6 text-center text-xs font-bold text-rose-700 dark:text-rose-300">
-          {errorMsg || 'تعذر العثور على هذا الملف الشخصي.'}
+          {errorMsg || (isEnView ? 'Could not find this profile.' : 'تعذر العثور على هذا الملف الشخصي.')}
         </div>
       ) : (
         <>
@@ -745,6 +980,115 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     {opt.label}
                   </button>
                 ))}
+              </div>
+            </section>
+          )}
+
+          {/* بطاقة شموسة الاستباقية للصفحة الشخصية — تظهر فقط لو شموسة مفعّلة في باقات الحساب */}
+          {isOwner && previewAs === 'owner' && canOwnerShamousa && proactiveProfileAudit && !hideProactiveCard && (
+            <section className="rounded-2xl bg-[#FBF7F0] dark:bg-[#0F1E42] border border-[#D5C7B0] dark:border-[#243C78] p-4 space-y-3 shadow-xs">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-[#142A5C] text-[#FBBF24] flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                        شموسة معاك النهاردة — أهم حاجتين لصفحتك ☀️
+                      </h2>
+                      <span className="px-2 py-0.5 rounded-lg bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#FBBF24] text-[11px] font-black font-mono">
+                        {proactiveProfileAudit.score}/100
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] mt-0.5">
+                      فحص محلي سريع مع احترام كامل لإعدادات خصوصيتك — كل الأزرار تفتح شات شموسة الواحد.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHideProactiveCard(true)}
+                  aria-label="إخفاء مؤقتاً"
+                  className="p-1 rounded-lg text-[#64748B] hover:text-[#0C1427] dark:hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {proactiveProfileAudit.topTwoToday.slice(0, 2).map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className="rounded-xl bg-[#EFE6D7]/70 dark:bg-[#142859] border border-[#D5C7B0] dark:border-[#2A4585] p-3 flex flex-col justify-between gap-2"
+                  >
+                    <div>
+                      <div className="text-xs font-black text-[#142A5C] dark:text-[#F8FAFC]">
+                        {idx + 1}. {item.title}
+                      </div>
+                      <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] mt-1 leading-relaxed">
+                        {item.detail}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playButtonClickSound();
+                        dispatchShamousaIntent({ prompt: item.intentPrompt, autoSend: true });
+                      }}
+                      className="self-start px-3 py-1.5 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] text-white text-[11px] font-black cursor-pointer transition"
+                    >
+                      {item.buttonLabel}
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[#E3D8C5] dark:border-[#21376E]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    dispatchShamousaIntent({ intent: 'decision_report', prompt: 'التحليل والحلول الذكية', autoSend: true });
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-[#EAE0CE] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#183069] dark:text-[#E2E8F0] text-[11px] font-black cursor-pointer transition"
+                >
+                  التحليل والحلول الذكية
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    dispatchShamousaIntent({ intent: 'write_post', prompt: 'اكتب لي بوست', autoSend: true });
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-[#EAE0CE] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#183069] dark:text-[#E2E8F0] text-[11px] font-black cursor-pointer transition"
+                >
+                  اكتب لي بوست
+                </button>
+                {canOwnerStorefront && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playButtonClickSound();
+                        dispatchShamousaIntent({ intent: 'review_products', prompt: 'راجع منتجاتي', autoSend: true });
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#EAE0CE] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#183069] dark:text-[#E2E8F0] text-[11px] font-black cursor-pointer transition"
+                    >
+                      راجع منتجاتي
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playButtonClickSound();
+                        dispatchShamousaIntent({ intent: 'whatsapp_message', prompt: 'رسالة واتساب', autoSend: true });
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#EAE0CE] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#183069] dark:text-[#E2E8F0] text-[11px] font-black cursor-pointer transition"
+                    >
+                      رسالة واتساب
+                    </button>
+                  </>
+                )}
               </div>
             </section>
           )}
@@ -800,7 +1144,9 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   <div className="flex flex-wrap items-center gap-2 text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
                     <span>
                       {effectiveProfile.accountRole === 'superadmin'
-                        ? 'إدارة المنظومة · كبير العيلة'
+                        ? isEnView
+                          ? 'Platform Admin · Community Lead'
+                          : 'إدارة المنظومة · كبير العيلة'
                         : effectiveProfile.accountRole === 'supplier'
                         ? t('verified_supplier')
                         : locale === 'ar'
@@ -817,11 +1163,17 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     ) && effectiveProfile.accountRole !== 'supplier' && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#EA580C] text-white text-[10px] font-black">
                         <GraduationCap className="w-3 h-3" />
-                        <span>{(effectiveProfile as any).gender === 'female' ? 'خبيرة' : 'خبير'}</span>
+                        <span>
+                          {isEnView
+                            ? 'Expert'
+                            : (effectiveProfile as any).gender === 'female'
+                            ? 'خبيرة'
+                            : 'خبير'}
+                        </span>
                       </span>
                     )}
-                    {effectiveProfile.governorate || effectiveProfile.country
-                      ? ` · ${[effectiveProfile.governorate, effectiveProfile.country].filter(Boolean).join('، ')}`
+                    {displayProfileGovernorate || displayProfileCountry
+                      ? ` · ${[displayProfileGovernorate, displayProfileCountry].filter(Boolean).join(isEnView ? ', ' : '، ')}`
                       : ''}
                     {` · ★ ${effectiveProfile.ratingStars || 5}`}
                   </div>
@@ -921,9 +1273,144 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   onRestored={(prevUrl) => setPersonalAvatarDraft(prevUrl)}
                 />
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {translateNotice && (
+                  <div className="rounded-xl px-3 py-2 text-[11px] font-bold bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200">
+                    {translateNotice}
+                  </div>
+                )}
+
+                {/* الاسم والبراند (عربي + إنجليزي معاً — اختياري أيهما أو كلاهما) */}
+                <div className="rounded-2xl bg-[#EFE9DC]/60 dark:bg-[#060B18]/60 border border-[#D4CCBC] dark:border-[#22355E] p-3.5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                        الاسم والبراند (عربي وإنجليزي)
+                      </span>
+                      <span className="block text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
+                        اكتب بالعربي فقط، أو بالإنجليزي فقط، أو بالاثنين معاً — والترجمة الفورية شغالة بالاتجاهين.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={translatingKey === 'identity'}
+                      onClick={() => {
+                        const hasAr = Boolean(displayNameDraft.trim() || brandNameDraft.trim());
+                        const hasEn = Boolean(
+                          translationsDraft.en?.displayName?.trim() || translationsDraft.en?.brandName?.trim()
+                        );
+                        if (hasAr) {
+                          handleAutoTranslate(
+                            'identity',
+                            'en',
+                            {
+                              displayName: displayNameDraft,
+                              brandName: brandNameDraft,
+                            },
+                            (res) => {
+                              if (res.displayName) updateTranslationField('en', 'displayName', res.displayName);
+                              if (res.brandName) updateTranslationField('en', 'brandName', res.brandName);
+                            },
+                            'ar'
+                          );
+                        } else if (hasEn) {
+                          handleAutoTranslate(
+                            'identity',
+                            'ar',
+                            {
+                              displayName: translationsDraft.en?.displayName || '',
+                              brandName: translationsDraft.en?.brandName || '',
+                            },
+                            (res) => {
+                              if (res.displayName) setDisplayNameDraft(res.displayName);
+                              if (res.brandName) setBrandNameDraft(res.brandName);
+                            },
+                            'en'
+                          );
+                        } else {
+                          setTranslateNotice('اكتب الاسم أو البراند بالعربي أو بالإنجليزي أولاً.');
+                          setTimeout(() => setTranslateNotice(null), 2600);
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#EA580C]/10 hover:bg-[#EA580C] text-[#C2410C] dark:text-[#FBBF24] hover:text-white text-[11px] font-black flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                    >
+                      {translatingKey === 'identity' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3" />
+                      )}
+                      <span>
+                        {!displayNameDraft.trim() &&
+                        !brandNameDraft.trim() &&
+                        (translationsDraft.en?.displayName?.trim() || translationsDraft.en?.brandName?.trim())
+                          ? 'ترجمة للعربي AR'
+                          : 'ترجمة الاسم والبراند EN'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* الاسم الشخصي (عربي + إنجليزي) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#0C1427] dark:text-[#F7F3EA] mb-1">
+                        الاسم الشخصي (عربي)
+                      </label>
+                      <input
+                        type="text"
+                        value={displayNameDraft}
+                        onChange={(e) => setDisplayNameDraft(e.target.value)}
+                        placeholder="مثال: سارة محمود"
+                        className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] mb-1">
+                        الاسم الشخصي (English)
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={translationsDraft.en?.displayName || ''}
+                        onChange={(e) => updateTranslationField('en', 'displayName', e.target.value)}
+                        placeholder="e.g. Sara Mahmoud"
+                        className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                      />
+                    </div>
+                  </div>
+
+                  {/* اسم البراند / الورشة (عربي + إنجليزي) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#0C1427] dark:text-[#F7F3EA] mb-1">
+                        اسم البراند / الورشة (عربي)
+                      </label>
+                      <input
+                        type="text"
+                        value={brandNameDraft}
+                        onChange={(e) => setBrandNameDraft(e.target.value)}
+                        placeholder="مثال: ورشة الشمس للمكرمية"
+                        className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] mb-1">
+                        اسم البراند / الورشة (English)
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={translationsDraft.en?.brandName || ''}
+                        onChange={(e) => updateTranslationField('en', 'brandName', e.target.value)}
+                        placeholder="e.g. Al-Shams Macrame Studio"
+                        className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* الوصف المهني المختصر (عربي + إنجليزي مقترن مباشرة) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold mb-1">الوصف المهني المختصر</label>
+                    <label className="block text-xs font-bold mb-1">الوصف المهني المختصر (عربي)</label>
                     <input
                       type="text"
                       value={bioHeadlineDraft}
@@ -932,6 +1419,58 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
                     />
                   </div>
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="block text-xs font-bold text-[#475569] dark:text-[#CBD5E1]">
+                        الوصف المهني بالإنجليزية (EN)
+                      </label>
+                      <button
+                        type="button"
+                        disabled={translatingKey === 'bio'}
+                        onClick={() => {
+                          if (bioHeadlineDraft.trim()) {
+                            handleAutoTranslate('bio', 'en', { bioHeadline: bioHeadlineDraft }, (res) => {
+                              if (res.bioHeadline) updateTranslationField('en', 'bioHeadline', res.bioHeadline);
+                            }, 'ar');
+                          } else {
+                            handleAutoTranslate(
+                              'bio',
+                              'ar',
+                              { bioHeadline: translationsDraft.en?.bioHeadline || '' },
+                              (res) => {
+                                if (res.bioHeadline) setBioHeadlineDraft(res.bioHeadline);
+                              },
+                              'en'
+                            );
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded-lg bg-[#EA580C]/10 hover:bg-[#EA580C] text-[#C2410C] dark:text-[#FBBF24] hover:text-white text-[10px] font-black flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                      >
+                        {translatingKey === 'bio' ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3 h-3" />
+                        )}
+                        <span>
+                          {!bioHeadlineDraft.trim() && translationsDraft.en?.bioHeadline?.trim()
+                            ? 'ترجمة عربي'
+                            : 'ترجمة EN'}
+                        </span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={translationsDraft.en?.bioHeadline || ''}
+                      onChange={(e) => updateTranslationField('en', 'bioHeadline', e.target.value)}
+                      placeholder="e.g. Handmade macrame wall art & natural cotton studio"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                    />
+                  </div>
+                </div>
+
+                {/* رقم الهاتف + المحافظة (عربي + إنجليزي) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-bold mb-1">رقم الهاتف للتواصل</label>
                     <input
@@ -942,7 +1481,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold mb-1">المحافظة / المدينة</label>
+                    <label className="block text-xs font-bold mb-1">المحافظة / المدينة (عربي)</label>
                     <input
                       type="text"
                       value={govDraft}
@@ -951,20 +1490,120 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
                     />
                   </div>
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="block text-xs font-bold text-[#475569] dark:text-[#CBD5E1]">
+                        المدينة بالإنجليزية (EN)
+                      </label>
+                      <button
+                        type="button"
+                        disabled={translatingKey === 'gov'}
+                        onClick={() => {
+                          if (govDraft.trim()) {
+                            handleAutoTranslate('gov', 'en', { governorate: govDraft }, (res) => {
+                              if (res.governorate) updateTranslationField('en', 'governorate', res.governorate);
+                            }, 'ar');
+                          } else {
+                            handleAutoTranslate(
+                              'gov',
+                              'ar',
+                              { governorate: translationsDraft.en?.governorate || '' },
+                              (res) => {
+                                if (res.governorate) setGovDraft(res.governorate);
+                              },
+                              'en'
+                            );
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded-lg bg-[#EA580C]/10 hover:bg-[#EA580C] text-[#C2410C] dark:text-[#FBBF24] hover:text-white text-[10px] font-black flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                      >
+                        {translatingKey === 'gov' ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3 h-3" />
+                        )}
+                        <span>
+                          {!govDraft.trim() && translationsDraft.en?.governorate?.trim()
+                            ? 'ترجمة عربي'
+                            : 'ترجمة EN'}
+                        </span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={translationsDraft.en?.governorate || ''}
+                      onChange={(e) => updateTranslationField('en', 'governorate', e.target.value)}
+                      placeholder="Cairo / Alexandria..."
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold mb-1">
-                    قصتي وبدايتي في الشغل (النبذة التعريفية)
-                  </label>
-                  <textarea
-                    rows={3}
-                    maxLength={1800}
-                    value={storyDraft}
-                    onChange={(e) => setStoryDraft(e.target.value)}
-                    placeholder="اكتب حكايتك مع حرفتك أو خبرتك في توفير الخامات، جودتك، وما يميز أعمالك..."
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs sm:text-sm leading-relaxed"
-                  />
+                {/* قصتي وبدايتي (عربي + إنجليزي مقترن مباشرة) */}
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="block text-xs font-bold mb-1">
+                      قصتي وبدايتي في الشغل (النبذة التعريفية بالعربي)
+                    </label>
+                    <textarea
+                      rows={3}
+                      maxLength={1800}
+                      value={storyDraft}
+                      onChange={(e) => setStoryDraft(e.target.value)}
+                      placeholder="اكتب حكايتك مع حرفتك أو خبرتك في توفير الخامات، جودتك، وما يميز أعمالك..."
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs sm:text-sm leading-relaxed"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="block text-xs font-bold text-[#475569] dark:text-[#CBD5E1]">
+                        قصتي بالإنجليزية (Story in English)
+                      </label>
+                      <button
+                        type="button"
+                        disabled={translatingKey === 'story'}
+                        onClick={() => {
+                          if (storyDraft.trim()) {
+                            handleAutoTranslate('story', 'en', { storyText: storyDraft }, (res) => {
+                              if (res.storyText) updateTranslationField('en', 'storyText', res.storyText);
+                            }, 'ar');
+                          } else {
+                            handleAutoTranslate(
+                              'story',
+                              'ar',
+                              { storyText: translationsDraft.en?.storyText || '' },
+                              (res) => {
+                                if (res.storyText) setStoryDraft(res.storyText);
+                              },
+                              'en'
+                            );
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-[#EA580C]/10 hover:bg-[#EA580C] text-[#C2410C] dark:text-[#FBBF24] hover:text-white text-[11px] font-black flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                      >
+                        {translatingKey === 'story' ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3 h-3" />
+                        )}
+                        <span>
+                          {!storyDraft.trim() && translationsDraft.en?.storyText?.trim()
+                            ? 'ترجمة القصة عربي'
+                            : 'ترجمة القصة EN'}
+                        </span>
+                      </button>
+                    </div>
+                    <textarea
+                      rows={3}
+                      maxLength={1800}
+                      dir="ltr"
+                      value={translationsDraft.en?.storyText || ''}
+                      onChange={(e) => updateTranslationField('en', 'storyText', e.target.value)}
+                      placeholder="Write your craft story and studio background in English..."
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs sm:text-sm leading-relaxed text-left"
+                    />
+                  </div>
                 </div>
 
                 {/* النوع / صفة المخاطبة (فنان / فنانة) */}
@@ -1062,7 +1701,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   </div>
                 </div>
 
-                {/* Multilingual Profile & English Brand Logo Studio */}
+                {/* ترجمات إضافية فقط (بدون تكرار العربي أو الإنجليزي) + الشعار الإنجليزي */}
                 <div className="space-y-2.5">
                   <button
                     type="button"
@@ -1071,57 +1710,240 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   >
                     <span className="flex items-center gap-2 text-[#0C1427] dark:text-[#F7F3EA]">
                       <Globe className="w-4 h-4 text-[#EA580C]" />
-                      <span>اللغات والترجمة الفورية والشعار الإنجليزي لصفحتك الشخصية</span>
+                      <span>
+                        ترجمات إضافية والشعار الإنجليزي
+                        {extraEnabledLanguages.length > 0 ? ` (${extraEnabledLanguages.length} لغات إضافية)` : ''}
+                      </span>
                     </span>
-                    <span className="text-[11px] text-[#C2410C] dark:text-[#FBBF24]">
-                      {showLangStudio ? 'إخفاء ▲' : 'فتح الإعدادات ▼'}
+                    <span className="text-[11px] text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1">
+                      <span>{showLangStudio ? 'إخفاء' : 'فتح'}</span>
+                      {showLangStudio ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </span>
                   </button>
 
                   {showLangStudio && (
-                    <MultilingualContentStudio
-                      title="لغات وترجمات الصفحة الشخصية والشعار الإنجليزي"
-                      enabledLanguages={enabledLangsDraft}
-                      onChangeEnabledLanguages={setEnabledLangsDraft}
-                      defaultLanguage={defaultLangDraft}
-                      onChangeDefaultLanguage={setDefaultLangDraft}
-                      showCurrencies={false}
-                      showBilingualLogos={true}
-                      logoArUrl={personalAvatarDraft || rawProfile.brandLogo || ''}
-                      logoEnUrl={brandLogoEnDraft}
-                      onChangeLogoEn={setBrandLogoEnDraft}
-                      fields={[
-                        {
-                          key: 'displayName',
-                          labelAr: 'الاسم الشخصي',
-                          sourceArabicValue: rawProfile.displayName || '',
-                          placeholderEn: 'Your name in this language',
-                        },
-                        {
-                          key: 'brandName',
-                          labelAr: 'اسم البراند / الورشة',
-                          sourceArabicValue: rawProfile.brandName || '',
-                          placeholderEn: 'Brand name in this language',
-                        },
-                        {
-                          key: 'bioHeadline',
-                          labelAr: 'السطر التعريفي المختصر',
-                          sourceArabicValue: bioHeadlineDraft || '',
-                          placeholderEn: 'Short bio headline',
-                        },
-                        {
-                          key: 'storyText',
-                          labelAr: 'القصة والنبذة التعريفية',
-                          sourceArabicValue: storyDraft || '',
-                          multiline: true,
-                          placeholderEn: 'Your craft story',
-                        },
-                      ]}
-                      translations={translationsDraft as any}
-                      onChangeTranslations={(next) =>
-                        setTranslationsDraft(next as Partial<Record<PublicLocaleCode, MemberProfileTranslationFields>>)
-                      }
-                    />
+                    <div className="rounded-2xl bg-[#EFE9DC]/65 dark:bg-[#060B18]/75 border border-[#D4CCBC] dark:border-[#22355E] p-4 space-y-4">
+                      {/* الشعار الإنجليزي + اللغة الافتراضية */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-3 border-b border-[#D4CCBC]/70 dark:border-[#22355E]">
+                        <div className="space-y-1.5">
+                          <span className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            شعار البراند الإنجليزي (اختياري للزوار الأجانب)
+                          </span>
+                          <div className="flex items-center gap-2.5">
+                            {brandLogoEnDraft && (
+                              <img
+                                src={brandLogoEnDraft}
+                                alt="EN Logo"
+                                className="w-11 h-11 rounded-xl object-contain bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-1 shrink-0"
+                              />
+                            )}
+                            <label className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[11px] font-black flex items-center gap-1.5 cursor-pointer">
+                              <Upload className="w-3.5 h-3.5 text-[#EA580C]" />
+                              <span>{brandLogoEnDraft ? 'تغيير الشعار الإنجليزي' : 'رفع شعار إنجليزي'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleUploadBrandLogoEn}
+                                className="hidden"
+                              />
+                            </label>
+                            {brandLogoEnDraft && (
+                              <button
+                                type="button"
+                                onClick={() => setBrandLogoEnDraft('')}
+                                className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
+                              >
+                                حذف
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            اللغة الافتراضية لصفحتك الشخصية
+                          </label>
+                          <select
+                            value={defaultLangDraft}
+                            onChange={(e) => setDefaultLangDraft(e.target.value as PublicLocaleCode)}
+                            className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                          >
+                            {enabledLangsDraft.map((code) => {
+                              const info = PUBLIC_LANGUAGES.find((l) => l.code === code);
+                              return (
+                                <option key={code} value={code}>
+                                  {info ? `${info.flag} ${info.nativeName}` : code.toUpperCase()}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* إضافة وإدارة لغات إضافية فقط (غير العربي والإنجليزي) */}
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            لغات إضافية بجانب العربي والإنجليزي
+                          </span>
+                          {availableExtraLanguagesToAdd.length > 0 && (
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                const code = e.target.value as PublicLocaleCode;
+                                if (!code) return;
+                                setEnabledLangsDraft((prev) => (prev.includes(code) ? prev : [...prev, code]));
+                                setActiveExtraLang(code);
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[11px] font-black cursor-pointer"
+                            >
+                              <option value="">+ إضافة لغة إضافية...</option>
+                              {availableExtraLanguagesToAdd.map((lang) => (
+                                <option key={lang.code} value={lang.code}>
+                                  {lang.flag} {lang.nativeName}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+
+                        {extraEnabledLanguages.length === 0 ? (
+                          <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                            العربية والإنجليزية مفعّلتان ومقترنتان مباشرة بكل حقل بالأعلى. اختر لغة إضافية من القائمة لو حابب تستهدف عملاء في أوروبا أو تركيا (مثل الهولندية، التركية، الفرنسية...).
+                          </p>
+                        ) : (
+                          <>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {extraEnabledLanguages.map((code) => {
+                                const info = PUBLIC_LANGUAGES.find((l) => l.code === code);
+                                const active = selectedExtraLang === code;
+                                return (
+                                  <div
+                                    key={code}
+                                    className={`inline-flex items-center gap-1 rounded-xl border text-[11px] font-black overflow-hidden ${
+                                      active
+                                        ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                                        : 'bg-white dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
+                                    }`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveExtraLang(code)}
+                                      className="px-2.5 py-1.5 cursor-pointer"
+                                    >
+                                      {info?.flag} {info?.nativeName || code.toUpperCase()}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      title="إزالة اللغة"
+                                      onClick={() => {
+                                        setEnabledLangsDraft((prev) => prev.filter((c) => c !== code));
+                                        if (defaultLangDraft === code) setDefaultLangDraft('ar');
+                                      }}
+                                      className="px-1.5 py-1.5 hover:bg-black/15 cursor-pointer"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {selectedExtraLang && (() => {
+                              const extraInfo = PUBLIC_LANGUAGES.find((l) => l.code === selectedExtraLang);
+                              const extraValues = translationsDraft[selectedExtraLang] || {};
+                              const busyKey = `extra:${selectedExtraLang}`;
+                              return (
+                                <div className="rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-3.5 space-y-3">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
+                                      {extraInfo?.flag} حقول اللغة {extraInfo?.nativeName}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={translatingKey === busyKey}
+                                      onClick={() =>
+                                        handleAutoTranslate(
+                                          busyKey,
+                                          selectedExtraLang,
+                                          {
+                                            displayName: rawProfile.displayName || '',
+                                            brandName: rawProfile.brandName || '',
+                                            bioHeadline: bioHeadlineDraft || '',
+                                            governorate: govDraft || '',
+                                            storyText: storyDraft || '',
+                                          },
+                                          (res) => {
+                                            setTranslationsDraft((prev) => ({
+                                              ...prev,
+                                              [selectedExtraLang]: {
+                                                ...(prev[selectedExtraLang] || {}),
+                                                ...res,
+                                              },
+                                            }));
+                                          }
+                                        )
+                                      }
+                                      className="px-3 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                    >
+                                      {translatingKey === busyKey ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>ترجمة كل الحقول إلى {extraInfo?.nativeName}</span>
+                                    </button>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                                    <input
+                                      type="text"
+                                      dir="ltr"
+                                      value={extraValues.displayName || ''}
+                                      onChange={(e) => updateTranslationField(selectedExtraLang, 'displayName', e.target.value)}
+                                      placeholder="Display Name"
+                                      className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA]/50 dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                                    />
+                                    <input
+                                      type="text"
+                                      dir="ltr"
+                                      value={extraValues.brandName || ''}
+                                      onChange={(e) => updateTranslationField(selectedExtraLang, 'brandName', e.target.value)}
+                                      placeholder="Brand / Studio Name"
+                                      className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA]/50 dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                                    />
+                                    <input
+                                      type="text"
+                                      dir="ltr"
+                                      value={extraValues.bioHeadline || ''}
+                                      onChange={(e) => updateTranslationField(selectedExtraLang, 'bioHeadline', e.target.value)}
+                                      placeholder="Short Bio Headline"
+                                      className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA]/50 dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                                    />
+                                    <input
+                                      type="text"
+                                      dir="ltr"
+                                      value={extraValues.governorate || ''}
+                                      onChange={(e) => updateTranslationField(selectedExtraLang, 'governorate', e.target.value)}
+                                      placeholder="City / Governorate"
+                                      className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA]/50 dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                                    />
+                                  </div>
+                                  <textarea
+                                    rows={3}
+                                    dir="ltr"
+                                    value={extraValues.storyText || ''}
+                                    onChange={(e) => updateTranslationField(selectedExtraLang, 'storyText', e.target.value)}
+                                    placeholder="About / Craft Story..."
+                                    className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA]/50 dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs leading-relaxed text-left"
+                                  />
+                                </div>
+                              );
+                            })()}
+                          </>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
 
@@ -1141,7 +1963,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
           </section>
 
           {/* Story Section (Visitor / Preview view) */}
-          {!isEditMode && effectiveProfile.storyText && (
+          {!isEditMode && displayProfileStory && (
             <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-2">
               <h3 className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4" />
@@ -1154,7 +1976,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                 </span>
               </h3>
               <p className="text-sm leading-relaxed text-[#0C1427] dark:text-[#F7F3EA] whitespace-pre-wrap">
-                {pickProfileField(effectiveProfile.storyText, 'storyText')}
+                {displayProfileStory}
               </p>
             </section>
           )}
@@ -1168,14 +1990,16 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   <span>{locale === 'ar' ? 'معرض الأعمال والمنشورات المميزة' : t('showcase_works')}</span>
                 </h3>
                 <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] mt-0.5">
-                  صور وقصص أعمال مميزة مضغوطة تلقائياً ومتزامنة مع واجهة المتجر العام
+                  {isEnView
+                    ? 'Curated handmade portfolio highlights synced directly with the public storefront'
+                    : 'صور وقصص أعمال مميزة مضغوطة تلقائياً ومتزامنة مع واجهة المتجر العام'}
                 </p>
               </div>
 
               <div className="flex items-center gap-2.5">
                 <span className="font-mono tabular-nums text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
                   {isEditMode ? postsCount : effectiveProfile.showcasePosts.length} /{' '}
-                  {MAX_SHOWCASE_POSTS} منشورات
+                  {MAX_SHOWCASE_POSTS} {isEnView ? 'Posts' : 'منشورات'}
                 </span>
 
                 {isEditMode && (
@@ -1228,14 +2052,59 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   )}
                 </div>
 
-                <textarea
-                  rows={2}
-                  maxLength={600}
-                  value={newPostCaption}
-                  onChange={(e) => setNewPostCaption(e.target.value)}
-                  placeholder="اكتب قصة هذا العمل أو تفاصيل الخامة المستخدمة (سيظهر كمنشور على صفحتك ومتجرك)..."
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs"
-                />
+                <div className="space-y-1">
+                  <span className="text-[11px] font-bold text-[#0C1427] dark:text-[#F7F3EA]">
+                    وصف العمل بالعربي (أو اكتب بالإنجليزي فقط أدناه)
+                  </span>
+                  <textarea
+                    rows={2}
+                    maxLength={600}
+                    value={newPostCaption}
+                    onChange={(e) => setNewPostCaption(e.target.value)}
+                    placeholder="اكتب قصة هذا العمل أو تفاصيل الخامة المستخدمة بالعربي..."
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
+                      وصف العمل بالإنجليزية (EN)
+                    </span>
+                    <button
+                      type="button"
+                      disabled={translatingKey === 'newPost'}
+                      onClick={() => {
+                        if (newPostCaption.trim()) {
+                          handleAutoTranslate('newPost', 'en', { caption: newPostCaption }, (res) => {
+                            if (res.caption) setNewPostCaptionEn(res.caption);
+                          }, 'ar');
+                        } else {
+                          handleAutoTranslate('newPost', 'ar', { caption: newPostCaptionEn }, (res) => {
+                            if (res.caption) setNewPostCaption(res.caption);
+                          }, 'en');
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-[#EA580C]/10 hover:bg-[#EA580C] text-[#C2410C] dark:text-[#FBBF24] hover:text-white text-[10px] font-black flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                    >
+                      {translatingKey === 'newPost' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3" />
+                      )}
+                      <span>{!newPostCaption.trim() && newPostCaptionEn.trim() ? 'ترجمة عربي' : 'ترجمة EN'}</span>
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    maxLength={600}
+                    dir="ltr"
+                    value={newPostCaptionEn}
+                    onChange={(e) => setNewPostCaptionEn(e.target.value)}
+                    placeholder="Write English caption for international visitors..."
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs text-left"
+                  />
+                </div>
 
                 {postError && (
                   <p className="text-xs font-bold text-rose-600 dark:text-rose-400">{postError}</p>
@@ -1296,13 +2165,59 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   </label>
                 </div>
 
-                <textarea
-                  rows={2}
-                  maxLength={600}
-                  value={editPostCaption}
-                  onChange={(e) => setEditPostCaption(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs"
-                />
+                <div className="space-y-1">
+                  <span className="text-[11px] font-bold text-[#0C1427] dark:text-[#F7F3EA]">
+                    وصف العمل بالعربي
+                  </span>
+                  <textarea
+                    rows={2}
+                    maxLength={600}
+                    value={editPostCaption}
+                    onChange={(e) => setEditPostCaption(e.target.value)}
+                    placeholder="وصف العمل بالعربي"
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
+                      وصف العمل بالإنجليزية (EN)
+                    </span>
+                    <button
+                      type="button"
+                      disabled={translatingKey === 'editPost'}
+                      onClick={() => {
+                        if (editPostCaption.trim()) {
+                          handleAutoTranslate('editPost', 'en', { caption: editPostCaption }, (res) => {
+                            if (res.caption) setEditPostCaptionEn(res.caption);
+                          }, 'ar');
+                        } else {
+                          handleAutoTranslate('editPost', 'ar', { caption: editPostCaptionEn }, (res) => {
+                            if (res.caption) setEditPostCaption(res.caption);
+                          }, 'en');
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-[#EA580C]/10 hover:bg-[#EA580C] text-[#C2410C] dark:text-[#FBBF24] hover:text-white text-[10px] font-black flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                    >
+                      {translatingKey === 'editPost' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3" />
+                      )}
+                      <span>{!editPostCaption.trim() && editPostCaptionEn.trim() ? 'ترجمة عربي' : 'ترجمة EN'}</span>
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    maxLength={600}
+                    dir="ltr"
+                    value={editPostCaptionEn}
+                    onChange={(e) => setEditPostCaptionEn(e.target.value)}
+                    placeholder="English caption..."
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs text-left"
+                  />
+                </div>
 
                 <div className="flex justify-end gap-2">
                   <button
@@ -1330,96 +2245,104 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                 <p className="font-bold">
                   {isEditMode
                     ? 'معرضك فارغ الآن — أضف أول صورة وقصة لأفضل أعمالك (بحد أقصى 6 منشورات).'
+                    : isEnView
+                    ? 'No portfolio highlights are visible in this view yet.'
                     : 'لا توجد منشورات أعمال ظاهرة في هذا العرض.'}
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {effectiveProfile.showcasePosts.map((post) => (
-                  <article
-                    key={post.id}
-                    className="rounded-2xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden flex flex-col justify-between group"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setLightboxPost(post)}
-                      className="relative w-full aspect-[4/3] overflow-hidden bg-[#EFE9DC] dark:bg-[#132040] cursor-pointer text-right block"
+                {effectiveProfile.showcasePosts.map((post) => {
+                  const localizedCaption = pickPostCaption(post);
+                  return (
+                    <article
+                      key={post.id}
+                      className="rounded-2xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden flex flex-col justify-between group"
                     >
-                      <img
-                        src={post.imageUrl}
-                        alt={post.caption || 'عمل مميز'}
-                        className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
-                      />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setLightboxPost(post)}
+                        className={`relative w-full aspect-[4/3] overflow-hidden bg-[#EFE9DC] dark:bg-[#132040] cursor-pointer block ${
+                          dir === 'rtl' ? 'text-right' : 'text-left'
+                        }`}
+                      >
+                        <img
+                          src={post.imageUrl}
+                          alt={localizedCaption || (isEnView ? 'Featured artwork' : 'عمل مميز')}
+                          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                        />
+                      </button>
 
-                    <div className="p-3.5 flex-1 flex flex-col justify-between gap-2.5">
-                      <p className="text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] leading-relaxed whitespace-pre-wrap">
-                        {post.caption || 'عمل فني مميز'}
-                      </p>
+                      <div className="p-3.5 flex-1 flex flex-col justify-between gap-2.5">
+                        <p className="text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] leading-relaxed whitespace-pre-wrap">
+                          {localizedCaption || (isEnView ? 'Handcrafted showcase piece' : 'عمل فني مميز')}
+                        </p>
 
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#D4CCBC]/60 dark:border-[#22355E]/70">
-                        <span className="text-[10px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
-                          {new Date(post.createdAt).toLocaleDateString('ar-EG', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                          })}
-                        </span>
+                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#D4CCBC]/60 dark:border-[#22355E]/70">
+                          <span className="text-[10px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
+                            {new Date(post.createdAt).toLocaleDateString(isEnView ? 'en-US' : 'ar-EG', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </span>
 
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleDirectShareShowcasePost(post)}
-                            title="مشاركة المنشور مباشرة"
-                            className={`px-2 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition ${
-                              sharedShowcaseId === post.id
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#EA580C] hover:text-white'
-                            }`}
-                          >
-                            {sharedShowcaseId === post.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleDirectShareShowcasePost(post)}
+                              title={isEnView ? 'Share post' : 'مشاركة المنشور مباشرة'}
+                              className={`px-2 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition ${
+                                sharedShowcaseId === post.id
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#EA580C] hover:text-white'
+                              }`}
+                            >
+                              {sharedShowcaseId === post.id ? (
+                                <>
+                                  <Check className="w-3 h-3" />
+                                  <span>{isEnView ? 'Copied' : 'تم النسخ'}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Share2 className="w-3 h-3" />
+                                  <span>{isEnView ? 'Share' : 'مشاركة'}</span>
+                                </>
+                              )}
+                            </button>
+
+                            {isEditMode && (
                               <>
-                                <Check className="w-3 h-3" />
-                                <span>تم النسخ</span>
-                              </>
-                            ) : (
-                              <>
-                                <Share2 className="w-3 h-3" />
-                                <span>مشاركة</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingPost(post);
+                                    setEditPostImg(post.imageUrl);
+                                    setEditPostCaption(post.caption || '');
+                                    setEditPostCaptionEn(post.captionEn || post.translations?.en || '');
+                                  }}
+                                  title="تعديل"
+                                  className="p-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] hover:bg-[#EA580C] hover:text-white cursor-pointer transition"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={postBusy}
+                                  onClick={() => handleDeleteShowcase(post.id)}
+                                  title="حذف نهائي من قاعدة البيانات"
+                                  className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </>
                             )}
-                          </button>
-
-                          {isEditMode && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingPost(post);
-                                  setEditPostImg(post.imageUrl);
-                                  setEditPostCaption(post.caption || '');
-                                }}
-                                title="تعديل"
-                                className="p-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] hover:bg-[#EA580C] hover:text-white cursor-pointer transition"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={postBusy}
-                                onClick={() => handleDeleteShowcase(post.id)}
-                                title="حذف نهائي من قاعدة البيانات"
-                                className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer transition"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -1432,19 +2355,24 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   <h3 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
                     <GraduationCap className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
                     <span>
-                      مكتبة شروحات ودروس{' '}
-                      {(effectiveProfile as any)?.gender === 'female' ? 'الخبيرة' : 'الخبير'} (عرض داخلي مباشر)
+                      {isEnView
+                        ? 'Expert Video Lessons & Tutorials'
+                        : `مكتبة شروحات ودروس ${
+                            (effectiveProfile as any)?.gender === 'female' ? 'الخبيرة' : 'الخبير'
+                          } (عرض داخلي مباشر)`}
                     </span>
                   </h3>
                   <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
-                    فيديوهات ومنشورات تعليمية مدمجة من يوتيوب وفيسبوك وإنستجرام وتيك توك تُشغّل داخل المنظومة مباشرة دون مغادرتها.
+                    {isEnView
+                      ? 'Embedded educational videos and craft tutorials playable directly inside the platform.'
+                      : 'فيديوهات ومنشورات تعليمية مدمجة من يوتيوب وفيسبوك وإنستجرام وتيك توك تُشغّل داخل المنظومة مباشرة دون مغادرتها.'}
                   </p>
                 </div>
 
                 {isExpertTrainer && (
                   <div className="flex items-center gap-2.5">
                     <span className="font-mono tabular-nums text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
-                      {rawTrainerCount} / {trainerPostLimit} شرح
+                      {rawTrainerCount} / {trainerPostLimit} {isEnView ? 'Lessons' : 'شرح'}
                     </span>
                     {isEditMode && (
                       <button
@@ -1516,22 +2444,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
-                        عنوان الشرح أو الدرس <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        maxLength={140}
-                        value={trainerTitle}
-                        onChange={(e) => setTrainerTitle(e.target.value)}
-                        placeholder="مثال: سر تسعير جدارية المكرمية الكبيرة بدون خسارة"
-                        className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
-                      />
-                    </div>
-
+                  <div className="space-y-3">
                     <div>
                       <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
                         رابط الفيديو أو المنشور (يُكتشف تلقائياً) <span className="text-rose-500">*</span>
@@ -1551,6 +2464,62 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                         placeholder="https://www.youtube.com/watch?v=... أو رابط فيسبوك/إنستجرام/تيك توك"
                         className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-mono text-left"
                       />
+                    </div>
+
+                    {/* عنوان الفيديو / الشرح (عربي + إنجليزي) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
+                          عنوان الشرح أو الفيديو (عربي)
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={140}
+                          value={trainerTitle}
+                          onChange={(e) => setTrainerTitle(e.target.value)}
+                          placeholder="مثال: سر تسعير جدارية المكرمية الكبيرة بدون خسارة"
+                          className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <label className="block text-xs font-black text-[#475569] dark:text-[#CBD5E1]">
+                            عنوان الفيديو بالإنجليزية (EN)
+                          </label>
+                          <button
+                            type="button"
+                            disabled={translatingKey === 'trainerTitle'}
+                            onClick={() => {
+                              if (trainerTitle.trim()) {
+                                handleAutoTranslate('trainerTitle', 'en', { title: trainerTitle }, (res) => {
+                                  if (res.title) setTrainerTitleEn(res.title);
+                                }, 'ar');
+                              } else {
+                                handleAutoTranslate('trainerTitle', 'ar', { title: trainerTitleEn }, (res) => {
+                                  if (res.title) setTrainerTitle(res.title);
+                                }, 'en');
+                              }
+                            }}
+                            className="px-2 py-0.5 rounded-lg bg-[#EA580C]/10 hover:bg-[#EA580C] text-[#C2410C] dark:text-[#FBBF24] hover:text-white text-[10px] font-black flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                          >
+                            {translatingKey === 'trainerTitle' ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3 h-3" />
+                            )}
+                            <span>{!trainerTitle.trim() && trainerTitleEn.trim() ? 'ترجمة عربي' : 'ترجمة EN'}</span>
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          maxLength={140}
+                          dir="ltr"
+                          value={trainerTitleEn}
+                          onChange={(e) => setTrainerTitleEn(e.target.value)}
+                          placeholder="e.g. How to price large macrame wall art profitably"
+                          className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-left"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1621,18 +2590,59 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
-                      ملخص الشرح أو الملاحظات المرفقة مع الفيديو
-                    </label>
-                    <textarea
-                      rows={2}
-                      maxLength={900}
-                      value={trainerDesc}
-                      onChange={(e) => setTrainerDesc(e.target.value)}
-                      placeholder="اكتب أهم النقاط التي سيتعلمها الفنانون من هذا الشرح..."
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs leading-relaxed"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
+                        ملخص الشرح أو الملاحظات المرفقة (عربي)
+                      </label>
+                      <textarea
+                        rows={2}
+                        maxLength={900}
+                        value={trainerDesc}
+                        onChange={(e) => setTrainerDesc(e.target.value)}
+                        placeholder="اكتب أهم النقاط التي سيتعلمها الفنانون من هذا الشرح..."
+                        className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs leading-relaxed"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <label className="block text-xs font-black text-[#475569] dark:text-[#CBD5E1]">
+                          ملخص الشرح بالإنجليزية (EN)
+                        </label>
+                        <button
+                          type="button"
+                          disabled={translatingKey === 'trainerDesc'}
+                          onClick={() => {
+                            if (trainerDesc.trim()) {
+                              handleAutoTranslate('trainerDesc', 'en', { description: trainerDesc }, (res) => {
+                                if (res.description) setTrainerDescEn(res.description);
+                              }, 'ar');
+                            } else {
+                              handleAutoTranslate('trainerDesc', 'ar', { description: trainerDescEn }, (res) => {
+                                if (res.description) setTrainerDesc(res.description);
+                              }, 'en');
+                            }
+                          }}
+                          className="px-2 py-0.5 rounded-lg bg-[#EA580C]/10 hover:bg-[#EA580C] text-[#C2410C] dark:text-[#FBBF24] hover:text-white text-[10px] font-black flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                        >
+                          {translatingKey === 'trainerDesc' ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3 h-3" />
+                          )}
+                          <span>{!trainerDesc.trim() && trainerDescEn.trim() ? 'ترجمة عربي' : 'ترجمة EN'}</span>
+                        </button>
+                      </div>
+                      <textarea
+                        rows={2}
+                        maxLength={900}
+                        dir="ltr"
+                        value={trainerDescEn}
+                        onChange={(e) => setTrainerDescEn(e.target.value)}
+                        placeholder="Key takeaways and tutorial notes in English..."
+                        className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs leading-relaxed text-left"
+                      />
+                    </div>
                   </div>
 
                   {/* Who Can See This Post? */}
@@ -1742,30 +2752,40 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   <div className="py-8 text-center text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
                     {isEditMode
                       ? 'اضغط على «إضافة رابط شرح مدمج» لنشر أول درس فيديو أو بوست تعليمي يُشغّل داخل المنظومة مباشرة.'
+                      : isEnView
+                      ? 'No lessons are currently visible for this audience.'
                       : 'لا توجد شروحات مدمجة متاحة لهذه الفئة حالياً.'}
                   </div>
                 )
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {trainerPostsList.map((tp) => (
-                    <EmbeddedSocialMediaCard
-                      key={tp.id}
-                      title={tp.title}
-                      description={tp.description}
-                      url={tp.url}
-                      platform={tp.platform}
-                      videoOrientation={tp.videoOrientation}
-                      videoAspectRatio={tp.videoAspectRatio}
-                      authorName={effectiveProfile.displayName}
-                      brandName={effectiveProfile.brandName}
-                      authorGender={
-                        tp.authorGender ||
-                        ((effectiveProfile as any)?.gender === 'male' ? 'male' : 'female')
-                      }
-                      audience={isEditMode ? tp.audience : undefined}
-                      onDelete={isEditMode ? () => handleDeleteTrainerPost(tp.id) : undefined}
-                    />
-                  ))}
+                  {trainerPostsList.map((tp) => {
+                    const localizedTpTitle = isEnView
+                      ? tp.titleEn || tp.title
+                      : tp.title || tp.titleEn || '';
+                    const localizedTpDesc = isEnView
+                      ? tp.descriptionEn || tp.description
+                      : tp.description || tp.descriptionEn || '';
+                    return (
+                      <EmbeddedSocialMediaCard
+                        key={tp.id}
+                        title={localizedTpTitle}
+                        description={localizedTpDesc}
+                        url={tp.url}
+                        platform={tp.platform}
+                        videoOrientation={tp.videoOrientation}
+                        videoAspectRatio={tp.videoAspectRatio}
+                        authorName={displayProfileName}
+                        brandName={displayProfileBrand}
+                        authorGender={
+                          tp.authorGender ||
+                          ((effectiveProfile as any)?.gender === 'male' ? 'male' : 'female')
+                        }
+                        audience={isEditMode ? tp.audience : undefined}
+                        onDelete={isEditMode ? () => handleDeleteTrainerPost(tp.id) : undefined}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -1812,7 +2832,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       {lightboxPost && (
         <div
           className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-xs flex items-center justify-center p-4"
-          dir="rtl"
+          dir={dir}
           onClick={(e) => {
             if (e.target === e.currentTarget) setLightboxPost(null);
           }}
@@ -1820,12 +2840,13 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
           <div className="max-w-3xl w-full rounded-3xl bg-[#0D162E] border border-[#22355E] overflow-hidden shadow-2xl">
             <div className="p-3 flex items-center justify-between border-b border-[#22355E]">
               <span className="text-xs font-black text-[#F7F3EA]">
-                {effectiveProfile?.displayName} · {effectiveProfile?.brandName}
+                {displayProfileName}
+                {displayProfileBrand ? ` · ${displayProfileBrand}` : ''}
               </span>
               <button
                 type="button"
                 onClick={() => setLightboxPost(null)}
-                aria-label="إغلاق المعاينة"
+                aria-label={isEnView ? 'Close preview' : 'إغلاق المعاينة'}
                 className="w-9 h-9 rounded-xl bg-white/10 hover:bg-[#EA580C] text-white flex items-center justify-center cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -1834,13 +2855,13 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
             <div className="bg-black flex items-center justify-center max-h-[65vh]">
               <img
                 src={lightboxPost.imageUrl}
-                alt={lightboxPost.caption || ''}
+                alt={pickPostCaption(lightboxPost) || ''}
                 className="max-h-[65vh] w-auto object-contain"
               />
             </div>
-            {lightboxPost.caption && (
+            {pickPostCaption(lightboxPost) && (
               <div className="p-4 text-sm text-[#F7F3EA] leading-relaxed whitespace-pre-wrap">
-                {lightboxPost.caption}
+                {pickPostCaption(lightboxPost)}
               </div>
             )}
           </div>

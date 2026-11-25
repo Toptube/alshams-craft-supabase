@@ -271,6 +271,7 @@ import {
   shouldPromptExistingUserForPackages,
   isShamousaUnlockedBySubscription,
   isSakrUnlockedBySubscription,
+  shouldShowShamousaUi,
 } from './types/subscriptions';
 const SupplierHomeScreen = lazy(() =>
   import('./components/supplier/SupplierHomeScreen').then((m) => ({
@@ -3516,25 +3517,30 @@ export const App: React.FC = () => {
           )}
       </main>
 
-      {/* Unified Floating Shamousa Assistant — Strictly gated by Subscription (never appears in core_free) */}
+      {/* Unified Single Shamousa Chat — Strictly ONE chat; orb & widget follow Shamousa activation in ANY package mix and stay completely hidden when Shamousa is off */}
       {profile &&
         activeView !== 'ai_agent' &&
-        activeView !== 'family' &&
         activeView !== 'my_store_studio' &&
-        (isUserAdmin(profile) ||
-          (featureFlags.aiAssistantsEnabled &&
-            isShamousaUnlockedBySubscription(
-              userSubscription,
-              (profile as any)?.accountRole === 'supplier' ? 'supplier' : 'artisan',
-              false
-            ))) && (
+        shouldShowShamousaUi(
+          userSubscription,
+          (profile as any)?.accountRole === 'supplier' ? 'supplier' : 'artisan',
+          isUserAdmin(profile),
+          featureFlags.aiAssistantsEnabled
+        ) && (
           <Suspense fallback={null}>
             <ShamousaChatWidget
               profile={profile}
+              hideFloatingLauncher={activeView === 'family'}
               onOpenFalcon={() => navigateTo('ai_agent')}
               isAnyModalOpen={isAnyModalOpen}
               onNavigateView={(target) => {
-                if (target === 'catalog') {
+                if (target === 'direct_product_prefill') {
+                  setOpenDirectProductOnCatalogEnter(true);
+                  handleNavigateToCatalog('catalog');
+                  window.setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('alshams_open_quick_direct_product'));
+                  }, 140);
+                } else if (target === 'catalog') {
                   handleNavigateToCatalog('catalog');
                 } else if (target === 'store') {
                   handleOpenArtisanStore('products');

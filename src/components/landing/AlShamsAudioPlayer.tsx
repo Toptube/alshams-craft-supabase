@@ -107,7 +107,7 @@ export const AlShamsAudioPlayer = forwardRef<AlShamsAudioPlayerHandle, AlShamsAu
             type="button"
             onClick={togglePlay}
             style={buttonStyle}
-            className={`w-9 h-9 sm:w-10 sm:h-10 ${buttonRadiusClass} border flex items-center justify-center shrink-0 hover:opacity-85 transition cursor-pointer select-none active:scale-95 ${
+            className={`w-8 h-8 sm:w-10 sm:h-10 ${buttonRadiusClass} border flex items-center justify-center shrink-0 hover:opacity-85 transition cursor-pointer select-none active:scale-95 ${
               isPlaying ? 'ring-2 ring-amber-400/50' : ''
             }`}
             title={isPlaying ? 'إيقاف نشيد الشمساوية' : 'تشغيل نشيد الشمساوية'}

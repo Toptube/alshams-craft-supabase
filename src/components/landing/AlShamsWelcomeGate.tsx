@@ -13,12 +13,14 @@ interface AlShamsWelcomeGateProps {
   isOpen: boolean;
   onClose: () => void;
   onEnter: () => void;
+  isEn?: boolean;
 }
 
 export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
   isOpen,
   onClose,
   onEnter,
+  isEn = false,
 }) => {
   const [phase, setPhase] = useState<'modal' | 'gifting' | 'hidden'>(isOpen ? 'modal' : 'hidden');
   const [boxOpened, setBoxOpened] = useState(false);
@@ -130,7 +132,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
   if (phase === 'hidden') return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center" dir="rtl">
+    <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center" dir={isEn ? 'ltr' : 'rtl'}>
       
       {/* ------------------------------------------------------------- */}
       {/* Phase 1: Welcome Modal (بوابة الاستقبال الحرفية الفاخرة)       */}
@@ -152,9 +154,9 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
             <button
               type="button"
               onClick={handleDismiss}
-              className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-stone-300 hover:text-white flex items-center justify-center transition cursor-pointer z-20"
-              title="إغلاق الترحيب"
-              aria-label="إغلاق الترحيب"
+              className={`absolute top-4 ${isEn ? 'right-4' : 'left-4'} w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-stone-300 hover:text-white flex items-center justify-center transition cursor-pointer z-20`}
+              title={isEn ? 'Close welcome gate' : 'إغلاق الترحيب'}
+              aria-label={isEn ? 'Close welcome gate' : 'إغلاق الترحيب'}
             >
               <X className="w-5 h-5" />
             </button>
@@ -173,7 +175,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
                   <FalconMascotFull isDark={true} height="100%" className="w-full h-full" />
                 </div>
                 <span className="mt-1 px-3 py-0.5 text-center text-[11px] font-black rounded-full bg-stone-950/90 text-amber-300 border border-amber-400/40 shadow-md">
-                  صقر الشمساوية 🦅
+                  {isEn ? 'Saqr Al-Shamsawiya 🦅' : 'صقر الشمساوية 🦅'}
                 </span>
               </div>
 
@@ -182,7 +184,9 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
                 <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-amber-500/20 border border-amber-400/40 p-1 shadow-lg flex items-center justify-center animate-pulse">
                   <AlShamsFalconEmblem size="sm" isDark={true} />
                 </div>
-                <span className="text-[10px] font-bold text-amber-300/80 mt-1">يد بيد</span>
+                <span className="text-[10px] font-bold text-amber-300/80 mt-1">
+                  {isEn ? 'Hand in Hand' : 'يد بيد'}
+                </span>
               </div>
 
               {/* شموسة */}
@@ -191,22 +195,24 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
                   <ShamousaMascotFull isDark={true} height="100%" className="w-full h-full" />
                 </div>
                 <span className="mt-1 px-3 py-0.5 text-center text-[11px] font-black rounded-full bg-stone-950/90 text-amber-300 border border-amber-400/40 shadow-md">
-                  شموسة ☀️
+                  {isEn ? 'Shamousa ☀️' : 'شموسة ☀️'}
                 </span>
               </div>
             </div>
 
-            {/* العبارة الترحيبية الدافئة باللهجة المصرية */}
+            {/* العبارة الترحيبية الدافئة */}
             <div className="space-y-3 mt-4">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight">
-                {gateCopy.headlineLine1} <br />
+                {isEn ? 'Welcome to the Home of' : gateCopy.headlineLine1} <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-200">
-                  {gateCopy.headlineHighlight}
+                  {isEn ? 'Al-Shamsawiya Artisans & Suppliers' : gateCopy.headlineHighlight}
                 </span>
               </h2>
 
               <p className="text-xs sm:text-sm text-stone-300 max-w-lg mx-auto leading-relaxed">
-                {gateCopy.description}
+                {isEn
+                  ? 'Where handmade craftsmanship meets smart ERP management, global storefronts, and a supportive creative family.'
+                  : gateCopy.description}
               </p>
             </div>
 
@@ -218,11 +224,15 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
                 className="w-full sm:w-auto px-8 py-4 rounded-2xl font-black text-base sm:text-lg bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 shadow-2xl shadow-amber-500/50 hover:shadow-amber-400/70 border-2 border-yellow-200 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2.5 cursor-pointer group"
               >
                 <Sparkles className="w-5 h-5 text-stone-950 animate-spin-slow group-hover:rotate-45 transition-transform" />
-                <span className="tracking-wide">{gateCopy.ctaText}</span>
+                <span className="tracking-wide">
+                  {isEn ? 'Enter Al-Shamsawiya World' : gateCopy.ctaText}
+                </span>
               </button>
               <span className="text-[11px] text-amber-400/70 flex items-center gap-1 mt-1">
                 <Volume2 className="w-3.5 h-3.5 animate-pulse" />
-                <span>{gateCopy.anthemHintText}</span>
+                <span>
+                  {isEn ? 'Plays the Al-Shamsawiya welcome theme' : gateCopy.anthemHintText}
+                </span>
               </span>
             </div>
 
@@ -290,7 +300,9 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
             {/* شارة الترحيب الاحتفالية */}
             {boxOpened && (
               <div className="absolute -bottom-8 px-4 py-1.5 rounded-full bg-stone-900/95 border border-amber-400 text-amber-300 font-black text-xs sm:text-sm whitespace-nowrap shadow-xl animate-fade-in">
-                🎉 نورت عيلة الشمساوية.. رحلتنا بدأت!
+                {isEn
+                  ? '🎉 Welcome to the Al-Shamsawiya Family — Let the Journey Begin!'
+                  : '🎉 نورت عيلة الشمساوية.. رحلتنا بدأت!'}
               </div>
             )}
           </div>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
+  ArrowRight,
   Boxes,
   Building2,
   Calculator,
@@ -38,8 +39,197 @@ export interface SystemModuleDef {
   simType: 'sync' | 'erp_prod' | 'fca_treasury' | 'crm_store' | 'hr_team' | 'pos_cashier' | 'ai_advisor';
 }
 
-export function getLandingSystemsCatalog(): Record<LandingAudience, SystemModuleDef[]> {
+export function getLandingSystemsCatalog(isEn = false): Record<LandingAudience, SystemModuleDef[]> {
   const themesCount = WORLD_STOREFRONT_THEMES_LIST.length;
+
+  if (isEn) {
+    return {
+      artisan: [
+        {
+          id: 'art_erp',
+          code: 'ERP',
+          title: 'Manufacturing, Stock & Smart Costing',
+          shortDesc: 'Precision cost calculator + work orders + auto material deduction',
+          fullDesc:
+            'From raw material stock to finished handmade goods: automatically calculate waste percentages, labor hours, and deduct stock per work order so you know your exact cost and net profit down to the penny.',
+          highlights: [
+            'Cost calculator covering raw materials, waste %, labor & target profit margin',
+            'Automatic raw-material stock deduction the moment a work order runs',
+            'Finished goods warehouse with proactive low-stock reorder alerts',
+          ],
+          icon: Calculator,
+          simType: 'erp_prod',
+        },
+        {
+          id: 'art_store',
+          code: 'CRM & Store',
+          title: `Global Storefront (${themesCount} Themes) & Customers`,
+          shortDesc: 'Independent link + animated banners + coupons + CRM ledger',
+          fullDesc:
+            `Launch a world-class online store under your brand with ${themesCount} switchable architectural themes (growing automatically), drag-and-drop product sorting, animated banners, discount codes, and before/after offers.`,
+          highlights: [
+            `Instant switching across ${themesCount} global themes (auto-updated with every new release)`,
+            'Animated & static promo banners + multi-type coupons (% / flat / free shipping / BOGO)',
+            'Customer order hub + your forever-free Personal Profile & portfolio showcase',
+          ],
+          icon: Store,
+          simType: 'crm_store',
+        },
+        {
+          id: 'art_fca',
+          code: 'FCA',
+          title: 'Finance, Treasuries & Net Profits',
+          shortDesc: 'Multi-channel treasuries (Cash / InstaPay / Wallet) + assets & expenses',
+          fullDesc:
+            'Separate workshop finances from personal spending: monitor Cash, InstaPay, and Wallet balances in real time, log purchases, sales, and overhead, and view true net profit daily.',
+          highlights: [
+            'Multi-channel treasuries (Cash / InstaPay / Mobile Wallet / Bank)',
+            'Direct ledger sync between purchases, sales invoices & account statements',
+            'Multi-currency support, exchange rate updates & monthly profit reports',
+          ],
+          icon: Wallet,
+          simType: 'fca_treasury',
+        },
+        {
+          id: 'art_hr',
+          code: 'HR',
+          title: 'Workshop Team, Artisans & Payroll',
+          shortDesc: 'Daily wages + salaries + advances + piece-rate commissions',
+          fullDesc:
+            'Working with assistants or piece-rate artisans? Track daily wages, advances, and commissions in one click and settle payouts directly from your workshop treasury with zero confusion.',
+          highlights: [
+            'Complete workshop team roster with daily wages & monthly salaries',
+            'Log advances, deductions & piece commissions linked directly to treasury',
+            'Labor cost breakdown reports for every production cycle',
+          ],
+          icon: Users,
+          simType: 'hr_team',
+        },
+        {
+          id: 'art_cloud',
+          code: 'Cloud + Offline',
+          title: 'Instant Cloud Sync + Full Offline Mode',
+          shortDesc: 'Internet dropped? Keep working — auto-syncs the second you reconnect',
+          fullDesc:
+            'Engineered for real workshops and pop-up fairs: even with zero internet, your invoices and stock save locally with full reliability and sync seamlessly to the cloud once back online.',
+          highlights: [
+            'Instant local saving on your device with zero loading lag',
+            'Encrypted automatic cloud synchronization when connectivity returns',
+            'Access your workshop seamlessly from mobile or laptop anytime',
+          ],
+          icon: Cloud,
+          simType: 'sync',
+        },
+        {
+          id: 'art_ai',
+          code: 'AI',
+          title: 'AI Business Partners (Saqr & Shamousa)',
+          shortDesc: 'Pricing & profit audits + daily guidance & smart search',
+          fullDesc:
+            'Your dedicated AI duo inside the workshop: Saqr audits product pricing to maximize profit and trim waste, while Shamousa answers questions instantly and locates any data or material in seconds.',
+          highlights: [
+            'Smart audit of production costs and recommended retail margins',
+            'One-click professional product descriptions & multilingual translations',
+            'Proactive alerts for low stock and pending customer orders',
+          ],
+          icon: Cpu,
+          simType: 'ai_advisor',
+        },
+      ],
+      supplier: [
+        {
+          id: 'sup_pos',
+          code: 'POS',
+          title: 'High-Speed Branch Barcode POS',
+          shortDesc: 'Lightning barcode checkout + auto wholesale & retail pricing tiers',
+          fullDesc:
+            'Built for raw-material wholesalers and factories: scan a barcode or type an item, automatically apply wholesale quantity tiers, print receipts, and deduct branch stock in under a second.',
+          highlights: [
+            'Automatic wholesale & bulk tier pricing based on cart quantity',
+            'Ultra-fast image-free POS mode with branch & cashier device locking',
+            'Split checkout (Cash / InstaPay / Workshop Credit) on a single invoice',
+          ],
+          icon: ScanBarcode,
+          simType: 'pos_cashier',
+        },
+        {
+          id: 'sup_erp',
+          code: 'ERP',
+          title: 'Central Warehouse, Branches & Factories',
+          shortDesc: 'Branch hierarchy + stock transfers + bulk-to-unit conversion',
+          fullDesc:
+            'Command your central warehouse and every retail branch from one hub: receive factory shipments, issue official branch transfers, and break bulk cartons into kilos or meters automatically.',
+          highlights: [
+            'Multi-branch central warehouse with instant transfer & receipt vouchers',
+            'Bulk-to-retail unit conversion with automatic weighted-average costing',
+            'Unified raw-material SKU coding linked to factories & inbound stock',
+          ],
+          icon: Building2,
+          simType: 'erp_prod',
+        },
+        {
+          id: 'sup_store',
+          code: 'B2B Store',
+          title: `Global Supplier Store (${themesCount} Themes) & B2B Market`,
+          shortDesc: 'Wholesale & retail catalog + animated banners + coupons',
+          fullDesc:
+            `Receive workshop and artisan orders 24/7 through your independent store powered by ${themesCount} global themes, drag-and-drop sorting, bulk pricing tiers, discount coupons, and B2B directory visibility.`,
+          highlights: [
+            `Full online storefront with ${themesCount} architectural themes (auto-growing)`,
+            'Clear wholesale & retail quantity pricing tiers for every material',
+            'Forever-free Supplier Personal Profile showcasing your story & branches',
+          ],
+          icon: ShoppingBag,
+          simType: 'crm_store',
+        },
+        {
+          id: 'sup_fca',
+          code: 'FCA & CRM',
+          title: 'Treasuries, Workshop Accounts & Credit',
+          shortDesc: 'Workshop statements + credit collections + daily branch profits',
+          fullDesc:
+            'Know exactly what every workshop owes and paid: manage credit installments, monitor every branch treasury (Cash / Bank / InstaPay), and track live sales and net profits.',
+          highlights: [
+            'Wholesale & workshop CRM directory with detailed client account statements',
+            'Track receivables and record credit collections in a single click',
+            'Profit analytics comparing branch and treasury performance',
+          ],
+          icon: Coins,
+          simType: 'fca_treasury',
+        },
+        {
+          id: 'sup_hr',
+          code: 'HR',
+          title: 'Sales Team, Staff & Device Security',
+          shortDesc: 'Branch cashiers + sales commissions + terminal access control',
+          fullDesc:
+            'Stay in full control of your sales and warehouse staff: assign each cashier to a branch and authorized device, and manage salaries, commissions, and advances from one dashboard.',
+          highlights: [
+            'Assign each seller and cashier to their exact branch & permissions',
+            'Automated salary, sales commission & advance calculations',
+            'Hardware terminal locking to prevent unauthorized POS logins',
+          ],
+          icon: UserCheck,
+          simType: 'hr_team',
+        },
+        {
+          id: 'sup_cloud',
+          code: 'Cloud + Offline',
+          title: 'Real-Time Multi-Branch Cloud Sync',
+          shortDesc: 'Never stop selling offline + instant HQ synchronization',
+          fullDesc:
+            'Your checkout lines never freeze: keep issuing POS invoices even during internet outages, and every receipt and stock update automatically syncs with HQ the instant connectivity returns.',
+          highlights: [
+            'Uninterrupted offline POS billing with zero queue delays',
+            'Instant sales & inventory sync across all branches and HQ cloud',
+            'Continuous encrypted cloud backups for total peace of mind',
+          ],
+          icon: Cloud,
+          simType: 'sync',
+        },
+      ],
+    };
+  }
 
   return {
     artisan: [
@@ -237,7 +427,8 @@ const LiveSystemMiniSimulation: React.FC<{
   audience: LandingAudience;
   theme: WorldLandingThemeSpec;
   onStartFree: () => void;
-}> = ({ module, audience, theme, onStartFree }) => {
+  isEn?: boolean;
+}> = ({ module, audience, theme, onStartFree, isEn = false }) => {
   // Interactive states for each simulation
   const [isOnlineSync, setIsOnlineSync] = useState(true);
   const [offlineQueued, setOfflineQueued] = useState(0);
@@ -255,6 +446,9 @@ const LiveSystemMiniSimulation: React.FC<{
   const [aiTipIdx, setAiTipIdx] = useState(0);
 
   const activePreviewTheme = WORLD_STOREFRONT_THEMES_LIST[previewThemeIdx % WORLD_STOREFRONT_THEMES_LIST.length];
+  const DirArrow = isEn ? ArrowRight : ArrowLeft;
+  const numLocale = isEn ? 'en-US' : 'ar-EG';
+  const egpUnit = isEn ? 'EGP' : 'ج.م';
 
   const handleToggleSync = () => {
     if (isOnlineSync) {
@@ -279,8 +473,19 @@ const LiveSystemMiniSimulation: React.FC<{
   const unitPosPrice = posQty >= 10 ? 115 : 145;
   const posLineTotal = unitPosPrice * posQty;
 
-  const aiTips =
-    audience === 'supplier'
+  const aiTips = isEn
+    ? audience === 'supplier'
+      ? [
+          'Saqr AI: "4mm Macrame Cord" is in high demand — add a bulk tier (×20) at 8% off to boost average order value.',
+          'Shamousa: 3 raw materials are approaching reorder thresholds in your central warehouse — ready to draft the PO.',
+          'Saqr AI: Activating an animated promo banner with coupon "WORKSHOP10" lifts B2B store conversions by 26%.',
+        ]
+      : [
+          'Saqr AI: Including 7% waste and 3 labor hours, the fair retail price is 680 EGP for a healthy 34% net margin.',
+          'Shamousa: Added the "Best Seller" badge to 3 pieces in your store to increase first-visit conversions.',
+          'Saqr AI: Cotton cord inventory covers only 4 more work orders — consider restocking before the weekend.',
+        ]
+    : audience === 'supplier'
       ? [
           'صقر AI: خامة «خيط مكرمية 4مم» عليها طلب مرتفع — اقترح شريحة جملة (×20) بخصم 8% لزيادة متوسط الفاتورة.',
           'شموسة: لديك 3 أصناف قربت من حد إعادة الطلب في المخزن المركزي — جاهز أجهزلك أمر التوريد.',
@@ -310,10 +515,10 @@ const LiveSystemMiniSimulation: React.FC<{
           >
             {module.code}
           </span>
-          <span>تجربة تفاعلية حية</span>
+          <span>{isEn ? 'Live Interactive Preview' : 'تجربة تفاعلية حية'}</span>
         </div>
         <span className="text-[11px] font-bold" style={{ color: theme.mutedColor }}>
-          جرّب الأزرار بالأسفل
+          {isEn ? 'Try the controls below' : 'جرّب الأزرار بالأسفل'}
         </span>
       </div>
 
@@ -337,10 +542,20 @@ const LiveSystemMiniSimulation: React.FC<{
               </motion.div>
               <div>
                 <p className="text-xs sm:text-sm font-black">
-                  {isOnlineSync ? 'متزامن سحابياً بالكامل الآن' : 'وضع العمل بدون إنترنت (أوفلاين)'}
+                  {isEn
+                    ? isOnlineSync
+                      ? 'Fully Synced with Cloud'
+                      : 'Working Offline (Zero Interruptions)'
+                    : isOnlineSync
+                    ? 'متزامن سحابياً بالكامل الآن'
+                    : 'وضع العمل بدون إنترنت (أوفلاين)'}
                 </p>
                 <p className="text-[11px]" style={{ color: theme.mutedColor }}>
-                  {isOnlineSync
+                  {isEn
+                    ? isOnlineSync
+                      ? 'All invoices and stock are backed up and live on the cloud'
+                      : `${offlineQueued} records saved locally and queued for instant auto-sync`
+                    : isOnlineSync
                     ? 'كل الفواتير والمخازن محمية ومحدثة على السحابة'
                     : `${offlineQueued} عمليات محفوظة محلياً وجاهزة للرفع فور عودة الشبكة`}
                 </p>
@@ -354,16 +569,31 @@ const LiveSystemMiniSimulation: React.FC<{
               className={`px-3.5 py-2 ${theme.buttonRadius} text-xs font-black flex items-center gap-1.5 cursor-pointer hover:opacity-90`}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${!isOnlineSync ? '' : 'animate-spin'}`} style={{ animationDuration: '4s' }} />
-              <span>{isOnlineSync ? 'جرّب فصل النت' : 'أعد الاتصال وزامن'}</span>
+              <span>
+                {isEn
+                  ? isOnlineSync
+                    ? 'Simulate Offline'
+                    : 'Reconnect & Sync'
+                  : isOnlineSync
+                  ? 'جرّب فصل النت'
+                  : 'أعد الاتصال وزامن'}
+              </span>
             </button>
           </div>
 
           <div className="grid grid-cols-3 gap-2 text-center font-mono tabular-nums">
-            {[
-              { label: 'حالة السحابة', val: isOnlineSync ? 'متزامن' : 'معلّق مؤقتاً' },
-              { label: 'عمليات بالانتظار', val: `${offlineQueued}` },
-              { label: 'أمان البيانات', val: '100% محفظ' },
-            ].map((stat, i) => (
+            {(isEn
+              ? [
+                  { label: 'Cloud Status', val: isOnlineSync ? 'Synced' : 'Queued' },
+                  { label: 'Pending Sync', val: `${offlineQueued}` },
+                  { label: 'Data Safety', val: '100% Safe' },
+                ]
+              : [
+                  { label: 'حالة السحابة', val: isOnlineSync ? 'متزامن' : 'معلّق مؤقتاً' },
+                  { label: 'عمليات بالانتظار', val: `${offlineQueued}` },
+                  { label: 'أمان البيانات', val: '100% محفظ' },
+                ]
+            ).map((stat, i) => (
               <div
                 key={i}
                 style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}
@@ -388,10 +618,16 @@ const LiveSystemMiniSimulation: React.FC<{
               className="p-3 rounded-xl border"
             >
               <p className="text-[11px] font-sans" style={{ color: theme.mutedColor }}>
-                {audience === 'supplier' ? 'رصيد المخزن المركزي' : 'رصيد خامات الورشة'}
+                {isEn
+                  ? audience === 'supplier'
+                    ? 'Central Warehouse Stock'
+                    : 'Workshop Raw Materials'
+                  : audience === 'supplier'
+                  ? 'رصيد المخزن المركزي'
+                  : 'رصيد خامات الورشة'}
               </p>
               <p className="text-xl font-black mt-1" style={{ color: theme.accentText }}>
-                {rawStock} <span className="text-xs font-sans">كجم</span>
+                {rawStock} <span className="text-xs font-sans">{isEn ? 'kg' : 'كجم'}</span>
               </p>
             </motion.div>
             <motion.div
@@ -402,10 +638,16 @@ const LiveSystemMiniSimulation: React.FC<{
               className="p-3 rounded-xl border"
             >
               <p className="text-[11px] font-sans" style={{ color: theme.mutedColor }}>
-                {audience === 'supplier' ? 'محوّل للفرع الجاهز للبيع' : 'مخزن المنتجات الجاهزة'}
+                {isEn
+                  ? audience === 'supplier'
+                    ? 'Transferred to Retail Branch'
+                    : 'Finished Goods Inventory'
+                  : audience === 'supplier'
+                  ? 'محوّل للفرع الجاهز للبيع'
+                  : 'مخزن المنتجات الجاهزة'}
               </p>
               <p className="text-xl font-black mt-1 text-emerald-600 dark:text-emerald-400">
-                {finishedStock} <span className="text-xs font-sans">وحدة</span>
+                {finishedStock} <span className="text-xs font-sans">{isEn ? 'units' : 'وحدة'}</span>
               </p>
             </motion.div>
           </div>
@@ -417,7 +659,13 @@ const LiveSystemMiniSimulation: React.FC<{
           >
             <Boxes className="w-4 h-4" />
             <span>
-              {isProducing
+              {isEn
+                ? isProducing
+                  ? 'Deducting & converting...'
+                  : audience === 'supplier'
+                  ? 'Try Branch Transfer (-3 kg → +1 pack)'
+                  : 'Run Work Order (-3 kg material → +1 finished piece)'
+                : isProducing
                 ? 'جاري الخصم والتحويل...'
                 : audience === 'supplier'
                 ? 'جرّب تحويل شحنة للفرع (-3 كجم ⟵ +1 باكدج)'
@@ -432,13 +680,23 @@ const LiveSystemMiniSimulation: React.FC<{
           <div className="p-3.5 rounded-xl border space-y-2.5" style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}>
             <div className="flex items-center justify-between gap-2">
               <div>
-                <p className="text-xs font-black">خيط قطن مجدول 4مم · كود #CT-402</p>
+                <p className="text-xs font-black">
+                  {isEn ? '4mm Twisted Cotton Cord · SKU #CT-402' : 'خيط قطن مجدول 4مم · كود #CT-402'}
+                </p>
                 <p className="text-[11px]" style={{ color: theme.mutedColor }}>
-                  السعر الحالي: <strong className="font-mono">{unitPosPrice} ج.م</strong> ({posQty >= 10 ? 'شريحة جملة مطبقة تلقائياً!' : 'سعر قطاعي'})
+                  {isEn ? 'Active Price: ' : 'السعر الحالي: '}
+                  <strong className="font-mono">{unitPosPrice} {egpUnit}</strong>{' '}
+                  ({isEn
+                    ? posQty >= 10
+                      ? 'Wholesale tier auto-applied!'
+                      : 'Retail price'
+                    : posQty >= 10
+                    ? 'شريحة جملة مطبقة تلقائياً!'
+                    : 'سعر قطاعي'})
                 </p>
               </div>
               <span className="text-base font-black font-mono tabular-nums" style={{ color: theme.accentText }}>
-                {posLineTotal.toLocaleString('ar-EG')} ج.م
+                {posLineTotal.toLocaleString(numLocale)} {egpUnit}
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -454,7 +712,7 @@ const LiveSystemMiniSimulation: React.FC<{
                   }
                   className={`px-3 py-1.5 ${theme.buttonRadius} border text-xs font-black cursor-pointer`}
                 >
-                  {q} {q >= 10 ? 'كجم (جملة)' : 'كجم'}
+                  {q} {isEn ? (q >= 10 ? 'kg (Wholesale)' : 'kg') : q >= 10 ? 'كجم (جملة)' : 'كجم'}
                 </button>
               ))}
             </div>
@@ -466,21 +724,23 @@ const LiveSystemMiniSimulation: React.FC<{
         <div className="space-y-3">
           <div className="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3" style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}>
             <div>
-              <p className="text-[11px]" style={{ color: theme.mutedColor }}>إجمالي السيولة المتاحة بالخزائن</p>
+              <p className="text-[11px]" style={{ color: theme.mutedColor }}>
+                {isEn ? 'Total Available Treasury Liquidity' : 'إجمالي السيولة المتاحة بالخزائن'}
+              </p>
               <motion.p
                 key={treasuryBalance}
                 initial={{ y: -4, opacity: 0.7 }}
                 animate={{ y: 0, opacity: 1 }}
                 className="text-2xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400"
               >
-                {treasuryBalance.toLocaleString('ar-EG')} ج.م
+                {treasuryBalance.toLocaleString(numLocale)} {egpUnit}
               </motion.p>
             </div>
             <div className="flex items-center gap-1.5">
               {[
-                { id: 'cash' as const, label: 'كاش' },
-                { id: 'instapay' as const, label: 'إنستاباي' },
-                { id: 'wallet' as const, label: 'محفظة' },
+                { id: 'cash' as const, label: isEn ? 'Cash' : 'كاش' },
+                { id: 'instapay' as const, label: isEn ? 'InstaPay' : 'إنستاباي' },
+                { id: 'wallet' as const, label: isEn ? 'Wallet' : 'محفظة' },
               ].map((ch) => (
                 <button
                   key={ch.id}
@@ -505,7 +765,15 @@ const LiveSystemMiniSimulation: React.FC<{
             className={`w-full py-2.5 px-4 ${theme.buttonRadius} text-xs font-black flex items-center justify-center gap-2 cursor-pointer hover:opacity-90`}
           >
             <Wallet className="w-4 h-4" />
-            <span>جرّب تحصيل فاتورة (+1,250 ج.م على وعاء {treasuryChannel === 'cash' ? 'الكاش' : treasuryChannel === 'instapay' ? 'إنستاباي' : 'المحفظة'})</span>
+            <span>
+              {isEn
+                ? `Collect Invoice (+1,250 EGP to ${
+                    treasuryChannel === 'cash' ? 'Cash' : treasuryChannel === 'instapay' ? 'InstaPay' : 'Wallet'
+                  })`
+                : `جرّب تحصيل فاتورة (+1,250 ج.م على وعاء ${
+                    treasuryChannel === 'cash' ? 'الكاش' : treasuryChannel === 'instapay' ? 'إنستاباي' : 'المحفظة'
+                  })`}
+            </span>
           </button>
         </div>
       )}
@@ -522,16 +790,20 @@ const LiveSystemMiniSimulation: React.FC<{
           >
             <div className="flex items-center justify-between gap-2">
               <div>
-                <p className="text-xs font-black">{activePreviewTheme.nameAr}</p>
+                <p className="text-xs font-black">
+                  {isEn ? activePreviewTheme.englishSignature || activePreviewTheme.nameAr : activePreviewTheme.nameAr}
+                </p>
                 <p className="text-[10px]" style={{ color: activePreviewTheme.mutedColor }}>
-                  سمة {previewThemeIdx + 1} من {WORLD_STOREFRONT_THEMES_LIST.length} سمة عالمية جاهزة
+                  {isEn
+                    ? `Theme ${previewThemeIdx + 1} of ${WORLD_STOREFRONT_THEMES_LIST.length} ready global themes`
+                    : `سمة ${previewThemeIdx + 1} من ${WORLD_STOREFRONT_THEMES_LIST.length} سمة عالمية جاهزة`}
                 </p>
               </div>
               <span
                 style={{ backgroundColor: activePreviewTheme.accentBg, color: activePreviewTheme.accentInk }}
                 className="px-2.5 py-1 rounded-lg text-[10px] font-black"
               >
-                معاينة سمة المتجر
+                {isEn ? 'Live Store Theme' : 'معاينة سمة المتجر'}
               </span>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -539,18 +811,22 @@ const LiveSystemMiniSimulation: React.FC<{
                 style={{ backgroundColor: activePreviewTheme.surfaceBg, borderColor: activePreviewTheme.borderColor }}
                 className="p-2.5 rounded-lg border text-[11px]"
               >
-                <p className="font-black truncate">معلقة مكرمية فاخرة</p>
+                <p className="font-black truncate">
+                  {isEn ? 'Luxury Macrame Wall Art' : 'معلقة مكرمية فاخرة'}
+                </p>
                 <p className="font-mono font-black mt-0.5" style={{ color: activePreviewTheme.priceColor }}>
-                  650 ج.م <span className="line-through opacity-55 text-[10px]">800</span>
+                  650 {egpUnit} <span className="line-through opacity-55 text-[10px]">800</span>
                 </p>
               </div>
               <div
                 style={{ backgroundColor: activePreviewTheme.surfaceBg, borderColor: activePreviewTheme.borderColor }}
                 className="p-2.5 rounded-lg border text-[11px]"
               >
-                <p className="font-black truncate">فازة خزف يدوية</p>
+                <p className="font-black truncate">
+                  {isEn ? 'Handmade Ceramic Vase' : 'فازة خزف يدوية'}
+                </p>
                 <p className="font-mono font-black mt-0.5" style={{ color: activePreviewTheme.priceColor }}>
-                  490 ج.م
+                  490 {egpUnit}
                 </p>
               </div>
             </div>
@@ -563,7 +839,11 @@ const LiveSystemMiniSimulation: React.FC<{
             className={`w-full py-2.5 px-4 ${theme.buttonRadius} text-xs font-black flex items-center justify-center gap-2 cursor-pointer hover:opacity-90`}
           >
             <Palette className="w-4 h-4" />
-            <span>بدّل سمة المتجر أمام عينك ({previewThemeIdx + 1}/{WORLD_STOREFRONT_THEMES_LIST.length})</span>
+            <span>
+              {isEn
+                ? `Switch Store Theme Live (${previewThemeIdx + 1}/${WORLD_STOREFRONT_THEMES_LIST.length})`
+                : `بدّل سمة المتجر أمام عينك (${previewThemeIdx + 1}/${WORLD_STOREFRONT_THEMES_LIST.length})`}
+            </span>
           </button>
         </div>
       )}
@@ -573,12 +853,20 @@ const LiveSystemMiniSimulation: React.FC<{
           <div className="p-3.5 rounded-xl border flex items-center justify-between gap-2" style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}>
             <div>
               <p className="text-xs font-black">
-                {audience === 'supplier' ? 'بائع فرع وسط البلد · كاشير #02' : 'صنايعي رئيسي · قسم الجلود والمكرمية'}
+                {isEn
+                  ? audience === 'supplier'
+                    ? 'Downtown Branch Seller · Cashier #02'
+                    : 'Lead Artisan · Leather & Macrame Unit'
+                  : audience === 'supplier'
+                  ? 'بائع فرع وسط البلد · كاشير #02'
+                  : 'صنايعي رئيسي · قسم الجلود والمكرمية'}
               </p>
-              <p className="text-[11px]" style={{ color: theme.mutedColor }}>مستحقات وعمولات الفترة الحالية</p>
+              <p className="text-[11px]" style={{ color: theme.mutedColor }}>
+                {isEn ? 'Current Period Wages & Commissions' : 'مستحقات وعمولات الفترة الحالية'}
+              </p>
             </div>
             <span className="text-lg font-black font-mono tabular-nums" style={{ color: theme.accentText }}>
-              {(2800 + teamBonus).toLocaleString('ar-EG')} ج.م
+              {(2800 + teamBonus).toLocaleString(numLocale)} {egpUnit}
             </span>
           </div>
           <button
@@ -588,7 +876,9 @@ const LiveSystemMiniSimulation: React.FC<{
             className={`w-full py-2.5 px-4 ${theme.buttonRadius} text-xs font-black flex items-center justify-center gap-2 cursor-pointer hover:opacity-90`}
           >
             <Users className="w-4 h-4" />
-            <span>جرّب إضافة يومية / عمولة (+150 ج.م)</span>
+            <span>
+              {isEn ? 'Add Daily Wage / Commission (+150 EGP)' : 'جرّب إضافة يومية / عمولة (+150 ج.م)'}
+            </span>
           </button>
         </div>
       )}
@@ -611,7 +901,7 @@ const LiveSystemMiniSimulation: React.FC<{
             className={`w-full py-2.5 px-4 ${theme.buttonRadius} text-xs font-black flex items-center justify-center gap-2 cursor-pointer hover:opacity-90`}
           >
             <Sparkles className="w-4 h-4" />
-            <span>استشارة جديدة من صقر & شموسة</span>
+            <span>{isEn ? 'Next Insight from Saqr & Shamousa' : 'استشارة جديدة من صقر & شموسة'}</span>
           </button>
         </div>
       )}
@@ -619,7 +909,7 @@ const LiveSystemMiniSimulation: React.FC<{
       {/* Action CTA */}
       <div className="pt-1 flex items-center justify-between gap-2">
         <span className="text-[11px] font-bold" style={{ color: theme.mutedColor }}>
-          متاح الآن ضمن عرض الإطلاق المجاني
+          {isEn ? 'Included in our Free Launch Offer' : 'متاح الآن ضمن عرض الإطلاق المجاني'}
         </span>
         <button
           type="button"
@@ -627,8 +917,8 @@ const LiveSystemMiniSimulation: React.FC<{
           className="text-xs font-black inline-flex items-center gap-1 hover:underline cursor-pointer"
           style={{ color: theme.accentText }}
         >
-          <span>جرّبها في حسابك مجاناً</span>
-          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>{isEn ? 'Try it free in your account' : 'جرّبها في حسابك مجاناً'}</span>
+          <DirArrow className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -640,6 +930,7 @@ interface LandingSystemsExplorerProps {
   onStartArtisan: () => void;
   onStartSupplier: () => void;
   initialAudience?: LandingAudience;
+  isEn?: boolean;
 }
 
 export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps> = ({
@@ -647,8 +938,9 @@ export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps
   onStartArtisan,
   onStartSupplier,
   initialAudience = 'artisan',
+  isEn = false,
 }) => {
-  const catalog = getLandingSystemsCatalog();
+  const catalog = getLandingSystemsCatalog(isEn);
   const [audience, setAudience] = useState<LandingAudience>(initialAudience);
   const [selectedId, setSelectedId] = useState<string>(catalog[initialAudience][0].id);
 
@@ -663,27 +955,31 @@ export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps
   return (
     <section
       id="systems-explorer"
-      className="py-12 sm:py-16 px-4 sm:px-6 border-y"
+      className="py-12 sm:py-16 px-4 sm:px-6 border-y w-full max-w-full overflow-x-clip"
       style={{ borderColor: theme.borderColor }}
     >
       <div className="max-w-6xl mx-auto space-y-8">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-5">
           <div className="space-y-2 max-w-2xl">
             <p className="text-xs font-black" style={{ color: theme.accentText }}>
-              01 · مستكشف منظومة الشمساوية التفاعلي
+              {isEn ? '01 · Interactive Al-Shamsawiya Systems Explorer' : '01 · مستكشف منظومة الشمساوية التفاعلي'}
             </p>
             <h2 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight" style={{ color: theme.inkColor }}>
-              كل أدوات التشغيل والإدارة والبيع — جرّبها لايف قبل ما تبدأ
+              {isEn
+                ? 'Every Operations, Finance & Sales Tool — Try It Live Before Starting'
+                : 'كل أدوات التشغيل والإدارة والبيع — جرّبها لايف قبل ما تبدأ'}
             </h2>
             <p className="text-sm leading-relaxed" style={{ color: theme.mutedColor }}>
-              اختر مسارك (فنانين وورش أو موردين وتجار خامات) واضغط على أي نظام لتشوف كيف يعمل على أرض الواقع.
+              {isEn
+                ? 'Pick your track (Artisans & Workshops or Raw Material Suppliers) and tap any module to test how it works in real life.'
+                : 'اختر مسارك (فنانين وورش أو موردين وتجار خامات) واضغط على أي نظام لتشوف كيف يعمل على أرض الواقع.'}
             </p>
           </div>
 
           {/* Audience Switcher */}
           <div
             style={{ backgroundColor: theme.softSurfaceBg, borderColor: theme.borderColor }}
-            className={`inline-flex p-1 ${theme.buttonRadius} border self-start md:self-auto`}
+            className={`flex sm:inline-flex w-full sm:w-auto max-w-full p-1 ${theme.buttonRadius} border self-start md:self-auto`}
           >
             <button
               type="button"
@@ -693,9 +989,9 @@ export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps
                   ? { backgroundColor: theme.accentBg, color: theme.accentInk }
                   : { color: theme.inkColor }
               }
-              className={`px-4 py-2 ${theme.buttonRadius} text-xs sm:text-sm font-black transition cursor-pointer whitespace-nowrap`}
+              className={`flex-1 sm:flex-none px-2.5 sm:px-4 py-2 ${theme.buttonRadius} text-[11px] sm:text-sm font-black transition cursor-pointer text-center`}
             >
-              الفنانين والورش
+              {isEn ? 'Artisans & Workshops' : 'الفنانين والورش'}
             </button>
             <button
               type="button"
@@ -705,9 +1001,9 @@ export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps
                   ? { backgroundColor: theme.accentBg, color: theme.accentInk }
                   : { color: theme.inkColor }
               }
-              className={`px-4 py-2 ${theme.buttonRadius} text-xs sm:text-sm font-black transition cursor-pointer whitespace-nowrap`}
+              className={`flex-1 sm:flex-none px-2.5 sm:px-4 py-2 ${theme.buttonRadius} text-[11px] sm:text-sm font-black transition cursor-pointer text-center`}
             >
-              الموردين وتجار الخامات
+              {isEn ? 'Raw Material Suppliers' : 'الموردين وتجار الخامات'}
             </button>
           </div>
         </div>
@@ -729,7 +1025,7 @@ export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps
                     borderColor: isSelected ? theme.accentBg : theme.borderColor,
                     color: theme.inkColor,
                   }}
-                  className={`w-full text-right p-3.5 ${theme.cardRadius} border flex items-start gap-3 transition-all cursor-pointer ${
+                  className={`w-full ${isEn ? 'text-left' : 'text-right'} p-3.5 ${theme.cardRadius} border flex items-start gap-3 transition-all cursor-pointer ${
                     isSelected ? theme.cardShadow : 'hover:opacity-95'
                   }`}
                 >
@@ -765,7 +1061,7 @@ export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps
           <div className="lg:col-span-7 flex">
             <AnimatePresence mode="wait">
               <motion.div
-                key={`${audience}-${activeModule.id}`}
+                key={`${audience}-${activeModule.id}-${isEn ? 'en' : 'ar'}`}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
@@ -787,7 +1083,14 @@ export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps
                     </div>
                     <div>
                       <p className="text-xs font-mono font-bold" style={{ color: theme.accentText }}>
-                        {audience === 'supplier' ? 'منظومة الموردين' : 'منظومة الورش'} · {activeModule.code}
+                        {isEn
+                          ? audience === 'supplier'
+                            ? 'Suppliers Suite'
+                            : 'Workshops Suite'
+                          : audience === 'supplier'
+                          ? 'منظومة الموردين'
+                          : 'منظومة الورش'}{' '}
+                        · {activeModule.code}
                       </p>
                       <h3 className="text-lg sm:text-2xl font-black leading-snug">
                         {activeModule.title}
@@ -816,6 +1119,7 @@ export const LandingSystemsExplorerSection: React.FC<LandingSystemsExplorerProps
                   module={activeModule}
                   audience={audience}
                   theme={theme}
+                  isEn={isEn}
                   onStartFree={audience === 'supplier' ? onStartSupplier : onStartArtisan}
                 />
               </motion.div>
@@ -836,6 +1140,7 @@ interface LandingSystemsDrawerProps {
   onOpenLogin: () => void;
   onOpenMarketplace?: () => void;
   onOpenSuppliersMarket?: () => void;
+  isEn?: boolean;
 }
 
 /**
@@ -850,8 +1155,9 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
   onOpenLogin,
   onOpenMarketplace,
   onOpenSuppliersMarket,
+  isEn = false,
 }) => {
-  const catalog = getLandingSystemsCatalog();
+  const catalog = getLandingSystemsCatalog(isEn);
   const [audience, setAudience] = useState<LandingAudience>('artisan');
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
 
@@ -859,11 +1165,12 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
 
   const modules = catalog[audience];
   const selectedModule = modules.find((m) => m.id === selectedModuleId) || null;
+  const DirArrow = isEn ? ArrowRight : ArrowLeft;
 
   return (
     <div
-      className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-xs flex justify-end"
-      dir="rtl"
+      className={`fixed inset-0 z-[110] bg-black/70 backdrop-blur-xs flex ${isEn ? 'justify-start' : 'justify-end'}`}
+      dir={isEn ? 'ltr' : 'rtl'}
       onClick={onClose}
     >
       <aside
@@ -873,7 +1180,7 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
           borderColor: theme.borderColor,
           color: theme.inkColor,
         }}
-        className="w-full max-w-md h-full border-r flex flex-col shadow-2xl overflow-hidden"
+        className={`w-full max-w-md h-full ${isEn ? 'border-r' : 'border-r'} flex flex-col shadow-2xl overflow-hidden`}
       >
         {/* Drawer Header */}
         <div
@@ -882,14 +1189,16 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
         >
           <div className="flex items-center gap-2">
             <Layers className="w-5 h-5" style={{ color: theme.accentText }} />
-            <h2 className="text-sm font-black">أنظمة ومنصات الشمساوية</h2>
+            <h2 className="text-sm font-black">
+              {isEn ? 'Al-Shamsawiya Systems & Modules' : 'أنظمة ومنصات الشمساوية'}
+            </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             style={{ backgroundColor: theme.softSurfaceBg, borderColor: theme.borderColor }}
             className="p-2 rounded-xl border cursor-pointer"
-            aria-label="إغلاق القائمة"
+            aria-label={isEn ? 'Close menu' : 'إغلاق القائمة'}
           >
             <X className="w-4 h-4" />
           </button>
@@ -911,7 +1220,7 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
               }
               className={`py-2.5 px-3 ${theme.buttonRadius} border text-xs font-black cursor-pointer transition`}
             >
-              الفنانين والورش
+              {isEn ? 'Artisans & Workshops' : 'الفنانين والورش'}
             </button>
             <button
               type="button"
@@ -926,7 +1235,7 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
               }
               className={`py-2.5 px-3 ${theme.buttonRadius} border text-xs font-black cursor-pointer transition`}
             >
-              الموردين والخامات
+              {isEn ? 'Suppliers & Materials' : 'الموردين والخامات'}
             </button>
           </div>
         </div>
@@ -941,7 +1250,11 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
                 className="text-xs font-black inline-flex items-center gap-1 cursor-pointer"
                 style={{ color: theme.accentText }}
               >
-                <span>→ الرجوع لقائمة أنظمة {audience === 'supplier' ? 'الموردين' : 'الفنانين والورش'}</span>
+                <span>
+                  {isEn
+                    ? `← Back to ${audience === 'supplier' ? 'Supplier' : 'Workshop'} Systems`
+                    : `→ الرجوع لقائمة أنظمة ${audience === 'supplier' ? 'الموردين' : 'الفنانين والورش'}`}
+                </span>
               </button>
 
               <div className="space-y-2">
@@ -958,6 +1271,7 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
                 module={selectedModule}
                 audience={audience}
                 theme={theme}
+                isEn={isEn}
                 onStartFree={() => {
                   onClose();
                   if (audience === 'supplier') onStartSupplier();
@@ -968,7 +1282,9 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
           ) : (
             <>
               <p className="text-[11px] font-bold px-1" style={{ color: theme.mutedColor }}>
-                اضغط على أي نظام لمشاهدة شرحه التفاعلي الحي:
+                {isEn
+                  ? 'Tap any system below to explore its live interactive preview:'
+                  : 'اضغط على أي نظام لمشاهدة شرحه التفاعلي الحي:'}
               </p>
               {modules.map((mod) => {
                 const Icon = mod.icon;
@@ -978,7 +1294,7 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
                     type="button"
                     onClick={() => setSelectedModuleId(mod.id)}
                     style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}
-                    className={`w-full text-right p-3.5 ${theme.cardRadius} border flex items-center gap-3 hover:opacity-95 cursor-pointer transition`}
+                    className={`w-full ${isEn ? 'text-left' : 'text-right'} p-3.5 ${theme.cardRadius} border flex items-center gap-3 hover:opacity-95 cursor-pointer transition`}
                   >
                     <div
                       style={{ backgroundColor: theme.accentSoftBg, color: theme.accentText }}
@@ -1013,8 +1329,8 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
                     style={{ backgroundColor: theme.softSurfaceBg, borderColor: theme.borderColor }}
                     className={`w-full py-2.5 px-3.5 ${theme.buttonRadius} border text-xs font-black flex items-center justify-between cursor-pointer`}
                   >
-                    <span>تصفح سوق الشمساوية للمشغولات</span>
-                    <ArrowLeft className="w-4 h-4" />
+                    <span>{isEn ? 'Browse Handmade Marketplace' : 'تصفح سوق الشمساوية للمشغولات'}</span>
+                    <DirArrow className="w-4 h-4" />
                   </button>
                 )}
                 {onOpenSuppliersMarket && (
@@ -1027,8 +1343,8 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
                     style={{ backgroundColor: theme.softSurfaceBg, borderColor: theme.borderColor }}
                     className={`w-full py-2.5 px-3.5 ${theme.buttonRadius} border text-xs font-black flex items-center justify-between cursor-pointer`}
                   >
-                    <span>تصفح سوق موردين الخامات (B2B)</span>
-                    <ArrowLeft className="w-4 h-4" />
+                    <span>{isEn ? 'Browse B2B Suppliers Market' : 'تصفح سوق موردين الخامات (B2B)'}</span>
+                    <DirArrow className="w-4 h-4" />
                   </button>
                 )}
               </div>
@@ -1050,7 +1366,7 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
             style={{ backgroundColor: theme.softSurfaceBg, borderColor: theme.borderColor, color: theme.inkColor }}
             className={`py-2.5 ${theme.buttonRadius} border text-xs font-black cursor-pointer`}
           >
-            تسجيل الدخول
+            {isEn ? 'Sign In' : 'تسجيل الدخول'}
           </button>
           <button
             type="button"
@@ -1062,7 +1378,7 @@ export const LandingSystemsDrawer: React.FC<LandingSystemsDrawerProps> = ({
             style={{ backgroundColor: theme.accentBg, color: theme.accentInk }}
             className={`py-2.5 ${theme.buttonRadius} text-xs font-black cursor-pointer`}
           >
-            ابدأ مجاناً الآن
+            {isEn ? 'Start Free Now' : 'ابدأ مجاناً الآن'}
           </button>
         </div>
       </aside>
