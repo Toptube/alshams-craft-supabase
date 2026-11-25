@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   Check,
   CheckCircle2,
   Cloud,
   CloudOff,
+  Coins,
   Crown,
   Gift,
   Layers,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   Sparkles,
   User,
+  Wallet,
   X,
 } from 'lucide-react';
 import { UserProfile } from '../../types';
@@ -29,6 +31,13 @@ import {
 } from '../../types/subscriptions';
 import { WORLD_STOREFRONT_THEMES_LIST } from '../../lib/storefrontThemes';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
+import {
+  calculatePackagesWalletRedemption,
+  getAccountWalletsLocal,
+  loadLoyaltyConfig,
+  pointsToEgp,
+  syncPublicLoyaltyFromServer,
+} from '../../services/loyaltyWalletsService';
 
 interface MySubscriptionsPageProps {
   profile: UserProfile;
@@ -57,6 +66,25 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
   );
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [loyaltyCfg, setLoyaltyCfg] = useState(() => loadLoyaltyConfig());
+  const [accountWallet, setAccountWallet] = useState(() =>
+    getAccountWalletsLocal(profile.workshopId || profile.email || profile.id || 'workshop')
+  );
+
+  useEffect(() => {
+    const key = profile.workshopId || profile.email || profile.id || 'workshop';
+    syncPublicLoyaltyFromServer().then(({ config }) => setLoyaltyCfg(config));
+    const onRefresh = () => {
+      setLoyaltyCfg(loadLoyaltyConfig());
+      setAccountWallet(getAccountWalletsLocal(key));
+    };
+    window.addEventListener('alshams_loyalty_config_updated', onRefresh);
+    window.addEventListener('alshams_loyalty_wallets_updated', onRefresh);
+    return () => {
+      window.removeEventListener('alshams_loyalty_config_updated', onRefresh);
+      window.removeEventListener('alshams_loyalty_wallets_updated', onRefresh);
+    };
+  }, [profile.workshopId, profile.email, profile.id]);
 
   const togglePkg = (id: SubscriptionPackageId) => {
     if (id === 'core_free') return;
@@ -152,6 +180,15 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
       .filter((p) => selectedIds.includes(p.id) && !p.isAlwaysFree)
       .reduce((sum, p) => sum + p.monthlyPriceEgp, 0);
   }, [packages, selectedIds]);
+
+  const packagesWalletPreview = useMemo(() => {
+    return calculatePackagesWalletRedemption({
+      subscriptionTotalEgp: regularTotalMonthly,
+      walletPoints: accountWallet.packagesWalletPoints,
+      walletType: 'packages_wallet',
+      config: loyaltyCfg,
+    });
+  }, [regularTotalMonthly, accountWallet.packagesWalletPoints, loyaltyCfg]);
 
   const formattedLastSync = useMemo(() => {
     if (!currentSub.syncedToCloudAt) return null;
@@ -418,6 +455,43 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
           );
         })}
       </div>
+
+      {/* Separate Packages Wallet Card (Strict Separation: Platform Packages Only) */}
+      {loyaltyCfg.enabled && (
+        <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#243968] bg-[#FFFDF8] dark:bg-[#0D162E] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                <Wallet className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
+                <span>محفظة الباقات ({isSupplier ? 'المورّد' : 'الورشة'})</span>
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-[#9A3412] dark:text-[#FBBF24] text-[10px] font-black font-mono tabular-nums">
+                1 نقطة = {loyaltyCfg.pointValueEgp} ج.م
+              </span>
+            </div>
+            <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+              تُستخدم لتغطية اشتراكات وباقات المنصة فقط (منفصلة تماماً عن محفظة التسوق ولا تؤثر على أرباح البائعين).
+              {packagesWalletPreview.coverageEgp > 0 && regularTotalMonthly > 0
+                ? ` رصيدك يغطّي حتى ${packagesWalletPreview.coverageEgp.toLocaleString('ar-EG')} ج.م من قيمة الباقات المختارة.`
+                : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0 font-mono tabular-nums">
+            <div className="px-3.5 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#243968] text-center">
+              <span className="block text-[10px] font-sans font-bold text-[#475569] dark:text-[#94A3B8]">
+                الرصيد الحالي
+              </span>
+              <span className="text-sm sm:text-base font-black text-[#C2410C] dark:text-[#FBBF24] inline-flex items-center gap-1">
+                <Coins className="w-3.5 h-3.5" />
+                <span>{accountWallet.packagesWalletPoints.toLocaleString('ar-EG')} نقطة</span>
+              </span>
+              <span className="block text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                ≈ {pointsToEgp(accountWallet.packagesWalletPoints, loyaltyCfg).toLocaleString('ar-EG')} ج.م
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bottom All-In-One Free Promo Card */}
       <div className="rounded-2xl border-2 border-[#EA580C]/50 border-b-[5px] border-b-[#9A3412] bg-gradient-to-l from-[#EA580C] via-[#C2410C] to-[#9A3412] text-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">

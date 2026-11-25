@@ -5465,6 +5465,303 @@ app.post('/api/admin/shamousa/landing-suggestions/mark-read', requireAuth, async
 });
 
 // -------------------------------------------------------------
+// Phase 2: Separate Loyalty Wallets, Flexible Point Pricing & Offers
+// -------------------------------------------------------------
+const DEFAULT_SERVER_LOYALTY_CONFIG = {
+  enabled: true,
+  pointValueEgp: 0.5,
+  customerMaxDiscountPercent: 15,
+  workshopMinMarginGuardPercent: 15,
+  packagesWalletMaxCoveragePercent: 100,
+  earningRules: {
+    verifiedOrderPer100Egp: 2,
+    verifiedReviewPts: 5,
+    firstWorkshopSetupPts: 20,
+    catalogCompletionPts: 15,
+    welcomeCustomerPts: 10,
+  },
+  updatedAt: new Date().toISOString(),
+};
+
+function sanitizeServerLoyaltyConfig(raw: any) {
+  const b = DEFAULT_SERVER_LOYALTY_CONFIG;
+  const pv = Number(raw?.pointValueEgp);
+  const maxDisc = Number(raw?.customerMaxDiscountPercent);
+  const minMargin = Number(raw?.workshopMinMarginGuardPercent);
+  const pkgCap = Number(raw?.packagesWalletMaxCoveragePercent);
+  return {
+    enabled: raw?.enabled !== false,
+    pointValueEgp: Number.isFinite(pv) ? Math.round(Math.min(50, Math.max(0.05, pv)) * 100) / 100 : b.pointValueEgp,
+    customerMaxDiscountPercent: Number.isFinite(maxDisc)
+      ? Math.round(Math.min(25, Math.max(5, maxDisc)))
+      : b.customerMaxDiscountPercent,
+    workshopMinMarginGuardPercent: Number.isFinite(minMargin)
+      ? Math.round(Math.min(50, Math.max(5, minMargin)))
+      : b.workshopMinMarginGuardPercent,
+    packagesWalletMaxCoveragePercent: Number.isFinite(pkgCap)
+      ? Math.round(Math.min(100, Math.max(10, pkgCap)))
+      : b.packagesWalletMaxCoveragePercent,
+    earningRules: {
+      verifiedOrderPer100Egp: Math.max(0, Math.min(50, Number(raw?.earningRules?.verifiedOrderPer100Egp ?? b.earningRules.verifiedOrderPer100Egp))),
+      verifiedReviewPts: Math.max(0, Math.min(100, Number(raw?.earningRules?.verifiedReviewPts ?? b.earningRules.verifiedReviewPts))),
+      firstWorkshopSetupPts: Math.max(0, Math.min(500, Number(raw?.earningRules?.firstWorkshopSetupPts ?? b.earningRules.firstWorkshopSetupPts))),
+      catalogCompletionPts: Math.max(0, Math.min(500, Number(raw?.earningRules?.catalogCompletionPts ?? b.earningRules.catalogCompletionPts))),
+      welcomeCustomerPts: Math.max(0, Math.min(200, Number(raw?.earningRules?.welcomeCustomerPts ?? b.earningRules.welcomeCustomerPts))),
+    },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function sanitizeServerOffers(rawOffers: any): any[] {
+  if (!Array.isArray(rawOffers)) return [];
+  const allowedTypes = new Set(['bonus_points', 'double_points', 'free_shipping_threshold', 'percent_discount', 'bundle_save']);
+  return rawOffers.slice(0, 50).map((o: any, idx: number) => ({
+    id: String(o?.id || `offer_${Date.now()}_${idx}`).slice(0, 80),
+    scope: o?.scope === 'store' ? 'store' : 'platform',
+    storeId: o?.storeId ? String(o.storeId).slice(0, 80) : undefined,
+    storeName: o?.storeName ? String(o.storeName).slice(0, 100) : undefined,
+    titleAr: String(o?.titleAr || '').trim().slice(0, 140),
+    subtitleAr: String(o?.subtitleAr || '').trim().slice(0, 320),
+    badgeAr: String(o?.badgeAr || '').trim().slice(0, 48),
+    offerType: allowedTypes.has(String(o?.offerType)) ? String(o.offerType) : 'bonus_points',
+    value: Math.max(0, Math.min(100000, Number(o?.value) || 0)),
+    minOrderEgp: o?.minOrderEgp ? Math.max(0, Math.min(100000, Number(o.minOrderEgp))) : undefined,
+    active: o?.active !== false,
+    endsAt: o?.endsAt ? String(o.endsAt).slice(0, 40) : undefined,
+    marginSafeVerified: o?.marginSafeVerified !== false,
+    createdAt: o?.createdAt ? String(o.createdAt).slice(0, 40) : new Date().toISOString(),
+  })).filter((o) => o.titleAr.length >= 2);
+}
+
+app.get('/api/public/loyalty/config', async (_req: Request, res: Response) => {
+  try {
+    const store = await readDurableKnowledgeStore();
+    const loyalty = (store as any).loyaltyEconomy || {};
+    const config = sanitizeServerLoyaltyConfig(loyalty.config);
+    const allOffers = Array.isArray(loyalty.offers) ? loyalty.offers : [];
+    res.json({
+      ok: true,
+      config,
+      offers: allOffers.filter((o: any) => o && o.active !== false),
+    });
+  } catch (err: any) {
+    console.warn('[Loyalty Public Config Read Error]:', err?.message);
+    res.json({ ok: true, config: DEFAULT_SERVER_LOYALTY_CONFIG, offers: [] });
+  }
+});
+
+app.post('/api/admin/loyalty/config', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'إعدادات النقاط والعروض متاحة للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const store = await readDurableKnowledgeStore();
+    const prev = (store as any).loyaltyEconomy || {};
+    const nextConfig = sanitizeServerLoyaltyConfig(req.body?.config);
+    const nextOffers = Array.isArray(req.body?.offers)
+      ? sanitizeServerOffers(req.body.offers)
+      : Array.isArray(prev.offers)
+      ? prev.offers
+      : [];
+
+    (store as any).loyaltyEconomy = {
+      ...prev,
+      config: nextConfig,
+      offers: nextOffers,
+    };
+    await writeDurableKnowledgeStore(store, req.scopedSupabase);
+    res.json({ ok: true, config: nextConfig, offers: nextOffers });
+  } catch (err: any) {
+    console.warn('[Admin Loyalty Config Save Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر حفظ إعدادات النقاط والعروض' });
+  }
+});
+
+app.get('/api/loyalty/wallet', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accountKey = String(req.workshopId || req.userEmail || req.user?.id || '').trim().toLowerCase();
+    if (!accountKey) {
+      res.status(401).json({ error: 'حساب غير مصرح له' });
+      return;
+    }
+    const store = await readDurableKnowledgeStore();
+    const loyalty = (store as any).loyaltyEconomy || {};
+    const wallets = loyalty.walletsByAccount && typeof loyalty.walletsByAccount === 'object' ? loyalty.walletsByAccount : {};
+    const wallet = wallets[accountKey] || {
+      accountId: accountKey,
+      packagesWalletPoints: 0,
+      shoppingWalletPoints: 0,
+      ledger: [],
+      updatedAt: new Date().toISOString(),
+    };
+    res.json({ ok: true, wallet, config: sanitizeServerLoyaltyConfig(loyalty.config) });
+  } catch (err: any) {
+    console.warn('[Loyalty Wallet Read Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر تحميل رصيد المحافظ حالياً' });
+  }
+});
+
+app.post('/api/loyalty/wallet/redeem', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accountKey = String(req.workshopId || req.userEmail || req.user?.id || '').trim().toLowerCase();
+    if (!accountKey) {
+      res.status(401).json({ error: 'حساب غير مصرح له' });
+      return;
+    }
+    const walletType = req.body?.walletType === 'packages_wallet' ? 'packages_wallet' : req.body?.walletType === 'shopping_wallet' ? 'shopping_wallet' : null;
+    const purpose = req.body?.purpose === 'package_subscription' ? 'package_subscription' : req.body?.purpose === 'order_discount' ? 'order_discount' : null;
+    const points = Math.floor(Number(req.body?.points) || 0);
+    const reasonAr = String(req.body?.reasonAr || 'استبدال نقاط').trim().slice(0, 180);
+
+    if (!walletType || !purpose || points <= 0) {
+      res.status(400).json({ error: 'بيانات استبدال النقاط غير صالحة' });
+      return;
+    }
+    // Enforce strict separation between wallets
+    if (walletType === 'packages_wallet' && purpose !== 'package_subscription') {
+      res.status(400).json({ error: 'محفظة الباقات مخصصة لاشتراكات المنصة فقط ولا تُستخدم في سلة التسوق' });
+      return;
+    }
+    if (walletType === 'shopping_wallet' && purpose !== 'order_discount') {
+      res.status(400).json({ error: 'محفظة التسوق مخصصة لخصم مشتريات السوق فقط ولا تُستخدم لباقات المنصة' });
+      return;
+    }
+
+    const store = await readDurableKnowledgeStore();
+    const loyalty = (store as any).loyaltyEconomy || {};
+    const config = sanitizeServerLoyaltyConfig(loyalty.config);
+    const wallets = loyalty.walletsByAccount && typeof loyalty.walletsByAccount === 'object' ? { ...loyalty.walletsByAccount } : {};
+    const current = wallets[accountKey] || {
+      accountId: accountKey,
+      packagesWalletPoints: 0,
+      shoppingWalletPoints: 0,
+      ledger: [],
+      updatedAt: new Date().toISOString(),
+    };
+
+    const avail = walletType === 'packages_wallet' ? current.packagesWalletPoints : current.shoppingWalletPoints;
+    if (points > avail) {
+      res.status(400).json({ error: 'رصيد النقاط في هذه المحفظة غير كافٍ' });
+      return;
+    }
+
+    const tx = {
+      id: `ltx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      walletType,
+      type: 'debit',
+      points,
+      egpEquivalent: Math.round(points * config.pointValueEgp * 100) / 100,
+      reasonAr,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = {
+      ...current,
+      packagesWalletPoints: walletType === 'packages_wallet' ? avail - points : current.packagesWalletPoints,
+      shoppingWalletPoints: walletType === 'shopping_wallet' ? avail - points : current.shoppingWalletPoints,
+      ledger: [tx, ...(Array.isArray(current.ledger) ? current.ledger : [])].slice(0, 100),
+      updatedAt: new Date().toISOString(),
+    };
+    wallets[accountKey] = updated;
+    (store as any).loyaltyEconomy = { ...loyalty, config, walletsByAccount: wallets };
+    await writeDurableKnowledgeStore(store, req.scopedSupabase);
+    res.json({ ok: true, wallet: updated });
+  } catch (err: any) {
+    console.warn('[Loyalty Wallet Redeem Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر استبدال النقاط حالياً' });
+  }
+});
+
+app.get('/api/admin/loyalty/wallets', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'متاح للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const store = await readDurableKnowledgeStore();
+    const loyalty = (store as any).loyaltyEconomy || {};
+    const walletsObj = loyalty.walletsByAccount && typeof loyalty.walletsByAccount === 'object' ? loyalty.walletsByAccount : {};
+    res.json({
+      ok: true,
+      config: sanitizeServerLoyaltyConfig(loyalty.config),
+      offers: Array.isArray(loyalty.offers) ? loyalty.offers : [],
+      wallets: Object.values(walletsObj),
+    });
+  } catch (err: any) {
+    console.warn('[Admin Loyalty Wallets Read Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر تحميل محافظ النقاط' });
+  }
+});
+
+app.post('/api/admin/loyalty/grant', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'منح وتعديل النقاط متاح للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const accountId = String(req.body?.accountId || '').trim().toLowerCase().slice(0, 120);
+    const walletType = req.body?.walletType === 'packages_wallet' ? 'packages_wallet' : req.body?.walletType === 'shopping_wallet' ? 'shopping_wallet' : null;
+    const type = req.body?.type === 'debit' ? 'debit' : 'credit';
+    const points = Math.floor(Number(req.body?.points) || 0);
+    const reasonAr = String(req.body?.reasonAr || 'تعديل نقاط من السوبر أدمن').trim().slice(0, 200);
+
+    if (!accountId || !walletType || points <= 0 || points > 100000) {
+      res.status(400).json({ error: 'بيانات منح النقاط غير مكتملة أو خارج النطاق المسموح' });
+      return;
+    }
+
+    const store = await readDurableKnowledgeStore();
+    const loyalty = (store as any).loyaltyEconomy || {};
+    const config = sanitizeServerLoyaltyConfig(loyalty.config);
+    const wallets = loyalty.walletsByAccount && typeof loyalty.walletsByAccount === 'object' ? { ...loyalty.walletsByAccount } : {};
+    const current = wallets[accountId] || {
+      accountId,
+      packagesWalletPoints: 0,
+      shoppingWalletPoints: 0,
+      ledger: [],
+      updatedAt: new Date().toISOString(),
+    };
+
+    const delta = type === 'credit' ? points : -points;
+    const tx = {
+      id: `ltx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      walletType,
+      type,
+      points,
+      egpEquivalent: Math.round(points * config.pointValueEgp * 100) / 100,
+      reasonAr,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = {
+      ...current,
+      packagesWalletPoints:
+        walletType === 'packages_wallet'
+          ? Math.max(0, (current.packagesWalletPoints || 0) + delta)
+          : current.packagesWalletPoints || 0,
+      shoppingWalletPoints:
+        walletType === 'shopping_wallet'
+          ? Math.max(0, (current.shoppingWalletPoints || 0) + delta)
+          : current.shoppingWalletPoints || 0,
+      ledger: [tx, ...(Array.isArray(current.ledger) ? current.ledger : [])].slice(0, 100),
+      updatedAt: new Date().toISOString(),
+    };
+
+    wallets[accountId] = updated;
+    (store as any).loyaltyEconomy = { ...loyalty, config, walletsByAccount: wallets };
+    await writeDurableKnowledgeStore(store, req.scopedSupabase);
+    res.json({ ok: true, wallet: updated });
+  } catch (err: any) {
+    console.warn('[Admin Loyalty Grant Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر تحديث رصيد المحفظة' });
+  }
+});
+
+// -------------------------------------------------------------
 // Falcon AI Agent Endpoints (General Crafts, Vision, Pricing)
 // -------------------------------------------------------------
 const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {

@@ -25,7 +25,8 @@ export type AdminPageId =
   | 'experts_trainers'
   | 'growth_hub'
   | 'pulse_radar'
-  | 'shamousa_issues';
+  | 'shamousa_issues'
+  | 'loyalty_offers';
 
 export type ExecutiveTab =
   | 'materials'
@@ -78,6 +79,7 @@ export function mapExecutiveTabToPage(tab?: ExecutiveTab): { page: AdminPageId; 
     case 'growth_hub':
     case 'pulse_radar':
     case 'shamousa_issues':
+    case 'loyalty_offers':
       return { page: tab };
     case 'messaging':
       return { page: 'notif_messages' };

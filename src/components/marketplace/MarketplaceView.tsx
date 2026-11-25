@@ -102,6 +102,12 @@ import {
   ShamousaActiveFilterBar,
   ShamousaMarketAssistantWidget,
 } from './ShamousaMarketAssistantWidget';
+import {
+  PlatformPromotionalOffer,
+  getActivePublicOffers,
+  loadLoyaltyConfig,
+  syncPublicLoyaltyFromServer,
+} from '../../services/loyaltyWalletsService';
 
 interface MarketplaceProductRecord extends SavedProductRecord {
   artistName?: string;
@@ -273,9 +279,21 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   const [shamousaFilter, setShamousaFilter] = useState<MarketShamousaActiveFilter | null>(null);
   const [shamousaShippingHint, setShamousaShippingHint] = useState<string | null>(null);
   const [shamousaOpenSignal, setShamousaOpenSignal] = useState<number>(0);
+  const [, setLoyaltyVersion] = useState<number>(0);
 
   const wishlistIds = useMemo(() => new Set(wishlistItems.map((i) => i.id)), [wishlistItems]);
   const compareIds = useMemo(() => new Set(compareItems.map((i) => i.id)), [compareItems]);
+
+  useEffect(() => {
+    syncPublicLoyaltyFromServer().then(() => setLoyaltyVersion((v) => v + 1)).catch(() => {});
+    const onLoyaltyUpdate = () => setLoyaltyVersion((v) => v + 1);
+    window.addEventListener('alshams_loyalty_config_updated', onLoyaltyUpdate);
+    window.addEventListener('alshams_loyalty_offers_updated', onLoyaltyUpdate);
+    return () => {
+      window.removeEventListener('alshams_loyalty_config_updated', onLoyaltyUpdate);
+      window.removeEventListener('alshams_loyalty_offers_updated', onLoyaltyUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     const onCurrUpdate = (e: any) => {
@@ -1750,6 +1768,52 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
               {/* 4. Global E-Commerce Product Grid */}
               <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-2 space-y-3">
+                {/* Compact Active Platform Motivational Offers & Points Strip */}
+                {(() => {
+                  const cfg = loadLoyaltyConfig();
+                  const activePlatformOffers: PlatformPromotionalOffer[] = getActivePublicOffers().filter(
+                    (o) => o.scope === 'platform'
+                  );
+                  if (!cfg.enabled || activePlatformOffers.length === 0) return null;
+                  const topOffer = activePlatformOffers[0];
+                  return (
+                    <div
+                      className="rounded-2xl border border-amber-500/30 bg-gradient-to-l from-[#FFF8EB] to-[#FAF3E3] dark:from-[#0F1B38] dark:to-[#132040] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2"
+                      dir="rtl"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="px-2 py-0.5 rounded-lg bg-[#EA580C] text-white text-[10px] font-black shrink-0">
+                          {topOffer.badgeAr}
+                        </span>
+                        <p className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
+                          {topOffer.titleAr}
+                          <span className="font-bold text-[#475569] dark:text-[#CBD5E1] hidden md:inline">
+                            {' '}— 1 نقطة = {cfg.pointValueEgp} ج.م (خصم مموّل من المنصة حتى {cfg.customerMaxDiscountPercent}% دون المساس بربح الفنان)
+                          </span>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShamousaOpenSignal((n) => n + 1)}
+                          className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#0A1124] border border-[#D4CCBC] dark:border-[#243968] text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24] hover:border-[#EA580C] cursor-pointer whitespace-nowrap"
+                        >
+                          اسأل شموسة عن العروض ☀️
+                        </button>
+                        {!(profile || customerUser) && (
+                          <button
+                            type="button"
+                            onClick={() => setIsCustomerAuthOpen(true)}
+                            className="px-2.5 py-1 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black cursor-pointer whitespace-nowrap"
+                          >
+                            سجّل واكسب +{cfg.earningRules.welcomeCustomerPts} نقطة
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <ShamousaActiveFilterBar
                   activeFilter={shamousaFilter}
                   totalCatalogCount={products.length}
@@ -2417,14 +2481,14 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         externalOpenSignal={shamousaOpenSignal}
       />
 
-      {/* Optional Floating WhatsApp Support Button */}
+      {/* Optional Floating WhatsApp Support Button (positioned above Shamousa button to avoid overlap) */}
       {builderConfig.whatsappSupport?.enabled && (
         <a
           href={`https://wa.me/${(builderConfig.whatsappSupport.phone || '201000996059').replace(/\D/g, '')}`}
           target="_blank"
           rel="noreferrer"
           title="تواصل معنا عبر واتساب"
-          className="fixed bottom-4 left-4 z-30 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-lg border border-emerald-400/40 transition cursor-pointer"
+          className="fixed bottom-16 left-4 z-30 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-lg border border-emerald-400/40 transition cursor-pointer"
         >
           <MessageCircle className="w-4 h-4 shrink-0" />
           <span className="hidden sm:inline">{builderConfig.whatsappSupport.label || 'تواصل معنا'}</span>

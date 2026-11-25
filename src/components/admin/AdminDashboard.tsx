@@ -81,6 +81,9 @@ const AdminReportsPage = lazy(() =>
 const AdminShamousaIssuesPage = lazy(() =>
   import('./AdminShamousaIssuesPage').then((m) => ({ default: m.AdminShamousaIssuesPage }))
 );
+const AdminLoyaltyOffersPanel = lazy(() =>
+  import('./AdminLoyaltyOffersPanel').then((m) => ({ default: m.AdminLoyaltyOffersPanel }))
+);
 const AdminNotificationPages = lazy(() =>
   import('./AdminNotificationPages').then((m) => ({ default: m.AdminNotificationPages }))
 );
@@ -2920,6 +2923,17 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
       {currentPage === 'shamousa_issues' && (
         <AdminShamousaIssuesPage
+          onBack={() => handleNavigatePage('home')}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
+        />
+      )}
+
+      {currentPage === 'loyalty_offers' && (
+        <AdminLoyaltyOffersPanel
           onBack={() => handleNavigatePage('home')}
           onNotifySuccess={(msg) => {
             playSuccessSound();

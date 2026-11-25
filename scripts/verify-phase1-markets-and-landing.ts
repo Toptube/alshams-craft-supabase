@@ -118,16 +118,18 @@ assert.ok(giftRes.filterToApply, 'Quick Gift wizard must produce grid filter');
 assert.ok(giftRes.filterToApply!.matchedIds.includes('prod_1'), 'Should match house/wedding gift within 300-700 EGP');
 console.log('✅ 3. Quick Gift Wizard (2-click) works offline accurately');
 
-// 4. Technical Problem Lead Magnet (Guest locked after 3 lines vs Authenticated unlocked)
-const guestLead = checkTechnicalProblemLeadMagnetOffline('عندي فقاعات هواء في الريزن ومش بتروح', false);
-assert.ok(guestLead, 'Guest technical question should match problem library');
-assert.equal(guestLead!.isLeadMagnetLocked, true, 'Guest response must be locked after 3 free lines');
-assert.ok(guestLead!.text.includes('تسجيل') || guestLead!.options.some((o) => o.action === 'open_register'));
+// 4. Full Offline Technical Problem Diagnosis (NO 3-line lock!) + Contextual Registration CTA for Guests
+const guestTech = checkTechnicalProblemLeadMagnetOffline('عندي فقاعات هواء في الريزن ومش بتروح', false);
+assert.ok(guestTech, 'Guest technical question should match problem library');
+assert.equal(guestTech!.isLeadMagnetLocked, false, 'Guest MUST receive full unlocked offline solution (no 3-line lock)');
+assert.ok(guestTech!.text.includes('سجّل دلوقتي'), 'Guest reply must include contextual registration invitation');
+assert.ok(guestTech!.options.some((o) => o.action === 'open_register'), 'Guest reply must include register CTA button');
 
-const memberLead = checkTechnicalProblemLeadMagnetOffline('عندي فقاعات هواء في الريزن ومش بتروح', true);
-assert.ok(memberLead);
-assert.ok(!memberLead!.isLeadMagnetLocked, 'Authenticated member must get full solution unlocked');
-console.log('✅ 4. Technical Problem Lead Magnet locks for guests (3 free lines) and unlocks for members');
+const memberTech = checkTechnicalProblemLeadMagnetOffline('عندي فقاعات هواء في الريزن ومش بتروح', true);
+assert.ok(memberTech);
+assert.equal(memberTech!.isLeadMagnetLocked, false, 'Authenticated member receives full solution unlocked');
+assert.ok(!memberTech!.options.some((o) => o.action === 'open_register'), 'Authenticated member should not see guest register CTA');
+console.log('✅ 4. Technical Problem Library is 100% unlocked offline for all users + contextual register CTA for guests');
 
 // 5. Compare Service (separate from cart, Shamousa narrowing, WhatsApp/FB share, B2B RFQ)
 const compareList: PublicCompareItem[] = [
@@ -222,18 +224,20 @@ const typoQa = processLandingShamousaMessage({ rawQuery: 'الباقت والا�
 assert.ok(typoQa.text.includes('الباقة الأساسية') || typoQa.text.includes('0 ج.م'), 'Should match packages topic despite typos');
 assert.ok(typoQa.filterToApply?.scrollToSectionId === 'landing-packages');
 
-// Lead Magnet on Landing Page
-const landingLead = processLandingShamousaMessage({ rawQuery: 'الريزن عندي طلع فيه فقاعات هواء اعمل ايه؟' });
-assert.equal(landingLead.isLeadMagnetLocked, true, 'Landing page technical question triggers Lead Magnet');
+// Full Offline Technical Diagnosis on Landing Page (NO 3-line lock + contextual register CTA)
+const landingTech = processLandingShamousaMessage({ rawQuery: 'الريزن عندي طلع فيه فقاعات هواء اعمل ايه؟' });
+assert.equal(landingTech.isLeadMagnetLocked, false, 'Landing page technical answer must be fully unlocked offline');
+assert.ok(landingTech.text.includes('سجّل دلوقتي'), 'Landing page technical answer must include contextual register CTA');
 
 // Out-of-scope visitor suggestion flow
 const outOfScope = processLandingShamousaMessage({ rawQuery: 'هل عندكم حجز تذاكر طيران دولية وفنادق؟' });
 assert.ok(outOfScope.awaitingVisitorSuggestionFor, 'Out-of-scope question should prompt for visitor suggestion');
+assert.ok(outOfScope.options.some((o) => o.action === 'navigate'), 'Out-of-scope reply should still provide gentle register CTA');
 const captured = processLandingShamousaMessage({
   rawQuery: 'أقترح إضافة شحن دولي مباشر لدول الخليج من داخل المنصة',
   awaitingSuggestionFor: outOfScope.awaitingVisitorSuggestionFor,
 });
 assert.ok(captured.capturedSuggestionText, 'Should capture visitor suggestion for Super Admin inbox');
-console.log('✅ 6. Landing Page Interactive Offline Shamousa (Role/Level Filter, Typo Q&A, Lead Magnet, Admin Suggestions) verified');
+console.log('✅ 6. Landing Page Interactive Offline Shamousa (Role/Level Filter, Typo Q&A, Unlocked Tech Help, Contextual CTA, Admin Suggestions) verified');
 
 console.log('\n🎉 ALL PHASE 1 + LANDING PAGE SHAMOUSA CHECKS PASSED 100%!');

@@ -34,6 +34,7 @@ import {
   Radar,
   Crown,
   HelpCircle,
+  Coins,
 } from 'lucide-react';
 import {
   AdminPageId,
@@ -274,6 +275,13 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       icon: <HelpCircle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-700 dark:text-amber-300" />,
       circleClass: 'bg-amber-100 dark:bg-amber-950/60 border-amber-300/60 dark:border-amber-700/60',
       onClick: () => onNavigatePage('shamousa_issues'),
+    },
+    {
+      id: 'loyalty_offers',
+      label: 'النقاط والمحافظ والعروض 🎁',
+      icon: <Coins className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-700 dark:text-emerald-300" />,
+      circleClass: 'bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300/60 dark:border-emerald-700/60',
+      onClick: () => onNavigatePage('loyalty_offers'),
     },
   ];
 

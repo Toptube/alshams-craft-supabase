@@ -35,6 +35,14 @@ import {
   getCurrencyInfo,
   getStoredCustomerDisplayCurrency,
 } from '../../lib/currency';
+import {
+  calculateShoppingWalletRedemption,
+  getAccountWalletsLocal,
+  loadLoyaltyConfig,
+  mutateAccountWalletLocal,
+  pointsToEgp,
+  syncPublicLoyaltyFromServer,
+} from '../../services/loyaltyWalletsService';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
 import {
   ShoppingBag,
@@ -112,6 +120,9 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedOrder, setSubmittedOrder] = useState<InvoiceRecord | null>(null);
   const [ratesVersion, setRatesVersion] = useState(0);
+  const [loyaltyConfig, setLoyaltyConfig] = useState(() => loadLoyaltyConfig());
+  const [useShoppingWalletPoints, setUseShoppingWalletPoints] = useState(false);
+  const [shoppingWalletBalance, setShoppingWalletBalance] = useState(0);
 
   useEffect(() => {
     const onBuilderUpdate = (e: any) => {
@@ -184,7 +195,11 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
         setCartItems(safeItems);
 
         const cust = customerUser || getStoredCustomerSession();
+        syncPublicLoyaltyFromServer().then(({ config }) => setLoyaltyConfig(config));
         if (cust) {
+          const acctKey = cust.phone || cust.email || cust.id || 'customer';
+          const localW = getAccountWalletsLocal(acctKey, cust.loyaltyPoints || 0);
+          setShoppingWalletBalance(Math.max(localW.shoppingWalletPoints, Number(cust.loyaltyPoints || 0)));
           setGovernorate(cust.governorate || 'القاهرة');
           const welcomeCoupon = freshBuilder.coupons.find(
             (c) => c.active && c.code.trim().toUpperCase() === 'SHAMS5'
@@ -194,6 +209,9 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
             setAppliedCoupon(welcomeCoupon);
             setAppliedWorkshopScope(null);
           }
+        } else {
+          setShoppingWalletBalance(0);
+          setUseShoppingWalletPoints(false);
         }
       } catch (err) {
         console.warn('Error reading cart on open:', err);
@@ -317,15 +335,33 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   }, [cartItems, workshopBundlesMap]);
 
   const totalBundleDiscount = bundleDiscountsBreakdown.total;
-  const finalTotal = Math.max(0, subtotal - discountAmount - totalBundleDiscount + shippingCost);
+  const shoppingRedemption = useMemo(
+    () =>
+      calculateShoppingWalletRedemption({
+        cartSubtotalEgp: Math.max(0, subtotal - discountAmount - totalBundleDiscount),
+        walletPoints: shoppingWalletBalance,
+        walletType: 'shopping_wallet',
+        config: loyaltyConfig,
+      }),
+    [subtotal, discountAmount, totalBundleDiscount, shoppingWalletBalance, loyaltyConfig]
+  );
+  const appliedShoppingPointsDiscount =
+    useShoppingWalletPoints && shoppingRedemption.allowed ? shoppingRedemption.discountEgp : 0;
+  const appliedShoppingPointsUsed =
+    useShoppingWalletPoints && shoppingRedemption.allowed ? shoppingRedemption.maxRedeemablePoints : 0;
+
+  const finalTotal = Math.max(
+    0,
+    subtotal - discountAmount - totalBundleDiscount - appliedShoppingPointsDiscount + shippingCost
+  );
   const advancePaymentAmount = Math.round(finalTotal * ADVANCE_PAYMENT_MIN_RATIO);
   const remainingAtDelivery = Math.max(0, finalTotal - advancePaymentAmount);
 
   const estimatedLoyaltyPoints = useMemo(() => {
-    if (!builderConfig.loyalty?.enabled) return 0;
-    const per100 = Math.max(1, Number(builderConfig.loyalty.pointsPer100Egp) || 10);
+    if (!loyaltyConfig.enabled && !builderConfig.loyalty?.enabled) return 0;
+    const per100 = Math.max(1, Number(loyaltyConfig.earningRules.verifiedOrderPer100Egp) || 2);
     return Math.floor((finalTotal / 100) * per100);
-  }, [finalTotal, builderConfig.loyalty]);
+  }, [finalTotal, loyaltyConfig, builderConfig.loyalty]);
 
   const primaryWorkshopId = cartItems[0]?.workshopId || 'central';
   const isOrderClientHidden = useMemo(
@@ -541,6 +577,11 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
       if (totalBundleDiscount > 0) {
         couponParts.push(`خصم باقة الورش (-${totalBundleDiscount} ج.م)`);
       }
+      if (appliedShoppingPointsDiscount > 0 && appliedShoppingPointsUsed > 0) {
+        couponParts.push(
+          `محفظة التسوق (-${appliedShoppingPointsDiscount} ج.م / ${appliedShoppingPointsUsed} نقطة — مموّل من المنصة)`
+        );
+      }
       const couponLabel = couponParts.length > 0 ? couponParts.join(' + ') : undefined;
 
       const newOrder: InvoiceRecord = {
@@ -567,7 +608,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
           notes: ci.customNotes,
         })),
         subtotal,
-        discount: discountAmount + totalBundleDiscount,
+        discount: discountAmount + totalBundleDiscount + appliedShoppingPointsDiscount,
         couponApplied: couponLabel,
         shipping: shippingCost,
         shippingCost,
@@ -595,6 +636,18 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
       };
 
       saveCentralMarketplaceOrder(newOrder);
+      if (customerUser && appliedShoppingPointsUsed > 0) {
+        const acctKey = customerUser.phone || customerUser.email || customerUser.id || 'customer';
+        mutateAccountWalletLocal({
+          accountId: acctKey,
+          walletType: 'shopping_wallet',
+          type: 'debit',
+          points: appliedShoppingPointsUsed,
+          reasonAr: `خصم فوري على الطلب #${orderNum} (مموّل من المنصة دون خصم من ربح الفنان)`,
+          referenceId: orderNum,
+          config: loyaltyConfig,
+        });
+      }
       clearCart();
       setCartItems([]);
       setSubmittedOrder(newOrder);
@@ -1157,6 +1210,40 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                     <span>خصم باقات الورش التلقائي:</span>
                   </span>
                   <span className="font-mono">- {totalBundleDiscount.toLocaleString('ar-EG')} ج.م ✓</span>
+                </div>
+              )}
+
+              {/* Phase 2: Shopping Wallet Points Redemption (Strictly Separate + Margin Protected) */}
+              {loyaltyConfig.enabled && customerUser && shoppingWalletBalance > 0 && (
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/35 space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-2 cursor-pointer font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      <input
+                        type="checkbox"
+                        checked={useShoppingWalletPoints}
+                        onChange={(e) => setUseShoppingWalletPoints(e.target.checked)}
+                        disabled={shoppingRedemption.discountEgp <= 0}
+                        className="w-4 h-4 accent-[#EA580C]"
+                      />
+                      <Coins className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24]" />
+                      <span>
+                        استبدال نقاط «محفظة التسوق» ({shoppingWalletBalance} نقطة ≈{' '}
+                        {pointsToEgp(shoppingWalletBalance, loyaltyConfig)} ج.م)
+                      </span>
+                    </label>
+                    {appliedShoppingPointsDiscount > 0 && (
+                      <span className="font-mono font-black text-emerald-700 dark:text-emerald-400">
+                        - {appliedShoppingPointsDiscount} ج.م ({appliedShoppingPointsUsed} نقطة) ✓
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      سقف الاستبدال حتى {loyaltyConfig.customerMaxDiscountPercent}% من الطلب (1 نقطة ={' '}
+                      {loyaltyConfig.pointValueEgp} ج.م) — الخصم مموّل بالكامل من المنصة ولا يُخصم من صافي ربح الفنان.
+                    </span>
+                  </p>
                 </div>
               )}
 

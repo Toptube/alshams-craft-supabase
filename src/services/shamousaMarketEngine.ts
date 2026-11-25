@@ -8,13 +8,18 @@
  * - احترام كامل لإعدادات المتجر الخاص (إخفاء السعر / إغلاق الطلبات / إخفاء الواتساب).
  * - فلترة حقيقية لشبكة المنتجات في الصفحة نفسها + زر «إلغاء الفلتر / عرض الكل».
  * - معالج «هدية سريعة» (سؤالين: المناسبة + الميزانية).
- * - استثمار مكتبة المشاكل الفنية (Lead Magnet أوفلاين): أول 3 نقاط مجاناً للزائر + زر تسجيل مجاني لفتح الباقي + تحذيرات السلامة.
+ * - مكتبة المشاكل الفنية مفتوحة بالكامل أوفلاين (الحل الكامل + تحذيرات السلامة بدون حجب) مع دعوة تسجيل سياقية «سجّل دلوقتي» لكل زائر حسب كلامه.
+ * - الرد الأوفلاين على عروض المنصة ونظام النقاط والمحافظ المنفصلة (قيمة النقطة + سقف الخصم + حماية هوامش الورش).
  */
 
 import { normalizeArabicKnowledgeText, trigramSimilarity } from './shamousaKnowledgeStore';
 import { diagnoseTechnicalProblemOffline } from './shamousaAnalyticBrains';
 import { understandProductSentence } from './shamousaProductUnderstanding';
 import { detectSameStoreShippingGroups } from './marketCompareService';
+import {
+  getActivePublicOffers,
+  loadLoyaltyConfig,
+} from './loyaltyWalletsService';
 
 export type MarketSurfaceMode =
   | 'alshams_market'
@@ -177,9 +182,87 @@ function extractPriceBounds(raw: string): { minPriceEgp?: number; maxPriceEgp?: 
   return {};
 }
 
+export type GuestCtaContext =
+  | 'technical_problem'
+  | 'gift_shopping'
+  | 'supplier_materials'
+  | 'offers_loyalty'
+  | 'general_market';
+
 /**
- * Lead Magnet أوفلاين من مكتبة المشاكل الفنية:
- * للزائر غير المسجّل يعرض أول 3 خطوات/نقاط فقط + دعوة للتسجيل المجاني لفتح الباقي وتحذيرات السلامة
+ * دعوة تسجيل سياقية لطيفة ومخصصة حسب الكلام اللي الزائر بيسأل عنه (بدون أي قفل أو حجب للمعلومة)
+ */
+export function buildContextualGuestRegisterCta(
+  context: GuestCtaContext,
+  storeName?: string
+): { lineAr: string; buttonLabelAr: string } {
+  const cfg = loadLoyaltyConfig();
+  const welcomePts = cfg.earningRules.welcomeCustomerPts;
+  const welcomeEgp = Math.round(welcomePts * cfg.pointValueEgp * 100) / 100;
+
+  switch (context) {
+    case 'technical_problem':
+      return {
+        lineAr:
+          `✨ **سجّل دلوقتي مجاناً** عشان تحتفظ بحساب ورشتك وتستخدم حاسبة التكاليف ومنظومة الخامات الموحدة وشموسة على بيانات شغلك (وتكسب نقاط باقات ترحيبية!).`,
+        buttonLabelAr: 'سجّل ورشتك دلوقتي مجاناً ✨',
+      };
+    case 'supplier_materials':
+      return {
+        lineAr:
+          `✨ **سجّل دلوقتي مجاناً** كفنان أو مورّد عشان تحفظ قائمة خاماتك وموردينك المفضلين وتجمع نقاط في **محفظة الباقات** تغطّي بيها اشتراكاتك!`,
+        buttonLabelAr: 'سجّل دلوقتي مجاناً (ورشة / مورّد) 📦',
+      };
+    case 'offers_loyalty':
+      return {
+        lineAr:
+          `✨ **سجّل دلوقتي مجاناً** واستلم **+${welcomePts} نقاط ترحيبية** (${welcomeEgp} ج.م في محفظة التسوق) تبدأ بيهم خصمك الفوري على أول طلب!`,
+        buttonLabelAr: `سجّل دلوقتي واكسب +${welcomePts} نقطة 🎁`,
+      };
+    case 'gift_shopping':
+      return {
+        lineAr:
+          `✨ **سجّل دلوقتي مجاناً** عشان تحفظ هداياك ومفضلتك (❤️) على كل أجهزتك وتكسب **+${welcomePts} نقاط تسوق** (الخصم مموّل من المنصة بالكامل!).`,
+        buttonLabelAr: 'سجّل دلوقتي واحفظ اختياراتك ✨',
+      };
+    default:
+      return {
+        lineAr:
+          `✨ **سجّل دلوقتي مجاناً** في ${storeName ? `«${storeName}» ومنصة الشمساوية` : 'الشمساوية'} عشان تحفظ مفضلتك ومقارنتك وتكسب نقاط تسوق فورية مع كل طلب!`,
+        buttonLabelAr: 'سجّل دلوقتي مجاناً ✨',
+      };
+  }
+}
+
+function attachGuestContextualCta(
+  reply: ShamousaMarketReply,
+  isAuthenticated: boolean,
+  context: GuestCtaContext,
+  storeName?: string
+): ShamousaMarketReply {
+  if (isAuthenticated) return reply;
+  const cta = buildContextualGuestRegisterCta(context, storeName);
+  const alreadyHasRegister = reply.options.some((o) => o.action === 'open_register');
+  return {
+    ...reply,
+    text: `${reply.text}\n\n${cta.lineAr}`,
+    options: alreadyHasRegister
+      ? reply.options
+      : [
+          ...reply.options,
+          {
+            id: `ctx_reg_${context}`,
+            label: cta.buttonLabelAr,
+            action: 'open_register',
+          },
+        ],
+  };
+}
+
+/**
+ * تشخيص المشاكل الفنية أوفلاين 100%:
+ * الحل الكامل + كل الخطوات العملية + تحذيرات السلامة مفتوحة بالكامل لكل زائر بدون أي حجب،
+ * مع دعوة تسجيل سياقية «سجّل دلوقتي» مخصصة للحرفة/الورشة للزائر غير المسجّل.
  */
 export function checkTechnicalProblemLeadMagnetOffline(
   rawQuery: string,
@@ -188,38 +271,15 @@ export function checkTechnicalProblemLeadMagnetOffline(
   const diag = diagnoseTechnicalProblemOffline(rawQuery, 'فنان');
   if (!diag.matched || !diag.entry) return null;
 
-  const entry = diag.entry;
-  if (isAuthenticated) {
-    return {
-      text: diag.reply,
-      options: [
-        { id: 'lm_clear', label: 'رجوع لتصفح السوق 🛍️', action: 'clear_filter' },
-      ],
-    };
-  }
-
-  // الزائر غير المسجّل: أول 3 خطوات مجاناً كـ Lead Magnet
-  const previewLines: string[] = [
-    `🔧 **تشخيص مبدئي (${entry.craftNameAr}):**`,
-    `1. **العَرَض:** ${entry.symptomAr}`,
-    `2. **أبرز سبب محتمل:** ${entry.possibleCausesAr[0] || 'خلل في ضبط الخامة أو التوقيت'}`,
-    `3. **أول خطوة عملية للحل:** ${entry.solutionStepsAr[0] || 'مراجعة خطوات التحضير الأساسية'}`,
-    `\n🔒 **باقي الخطوات العملية (${Math.max(1, entry.solutionStepsAr.length - 1)} خطوات إضافية) + الخامات البديلة الموحدة + تحذيرات السلامة المهنية** متاحة مجاناً فور تسجيلك في الشمساوية (مع نقاطك الترحيبية فوراً)!`,
-  ];
-
-  return {
-    text: previewLines.join('\n'),
-    isLeadMagnetLocked: true,
-    leadMagnetTitleAr: `افتح الحل الكامل لمشكلة ${entry.craftNameAr} مجاناً`,
+  const baseReply: ShamousaMarketReply = {
+    text: diag.reply,
+    isLeadMagnetLocked: false,
     options: [
-      {
-        id: 'lm_register',
-        label: 'اعرض باقي الحلول + السلامة (تسجيل مجاني) ✨',
-        action: 'open_register',
-      },
-      { id: 'lm_browse', label: 'كمّل تصفح المنتجات', action: 'clear_filter' },
+      { id: 'lm_clear', label: 'رجوع لتصفح السوق 🛍️', action: 'clear_filter' },
     ],
   };
+
+  return attachGuestContextualCta(baseReply, isAuthenticated, 'technical_problem');
 }
 
 /**
@@ -229,7 +289,8 @@ export function runQuickGiftWizardOffline(
   occasionId: string,
   budgetId: string,
   catalog: SanitizedPublicCatalogItem[],
-  privacy?: StorePrivacySettings
+  privacy?: StorePrivacySettings,
+  isAuthenticated = false
 ): ShamousaMarketReply {
   const occ = QUICK_GIFT_OCCASIONS.find((o) => o.id === occasionId) || QUICK_GIFT_OCCASIONS[0];
   const bud = QUICK_GIFT_BUDGETS.find((b) => b.id === budgetId) || QUICK_GIFT_BUDGETS[3];
@@ -274,28 +335,32 @@ export function runQuickGiftWizardOffline(
     };
   }
 
-  return {
-    text:
-      `🎁 **فلترتلك الصفحة فوراً على أفضل هدايا (${occ.labelAr.replace(/\s*[💐🏡🍼🎁🏢]/g, '')})**` +
-      (privacy?.hidePrices ? '' : ` في ميزانية **${bud.labelAr}**`) +
-      ` — لقيتلك **${finalList.length}** اختيار مميز ظاهرين قدامك دلوقتي!\n` +
-      `تقدر تضغط على أيقونة الميزان (⚖️) على أكتر من قطعة عشان نقارن بينهم سوا.` +
-      (shippingSaveHintAr ? `\n\n${shippingSaveHintAr}` : ''),
-    filterToApply: {
-      labelAr: `هدية: ${occ.labelAr.replace(/\s*[💐🏡🍼🎁🏢]/g, '')}${!privacy?.hidePrices && bud.id !== 'any_budget' ? ` · ${bud.labelAr}` : ''}`,
-      matchedIds: finalList.map((i) => i.id),
-      maxPriceEgp: privacy?.hidePrices ? undefined : bud.maxEgp,
-      minPriceEgp: privacy?.hidePrices ? undefined : bud.minEgp,
-      occasionAr: occ.labelAr,
-      sortBy: 'featured',
+  return attachGuestContextualCta(
+    {
+      text:
+        `🎁 **فلترتلك الصفحة فوراً على أفضل هدايا (${occ.labelAr.replace(/\s*[💐🏡🍼🎁🏢]/g, '')})**` +
+        (privacy?.hidePrices ? '' : ` في ميزانية **${bud.labelAr}**`) +
+        ` — لقيتلك **${finalList.length}** اختيار مميز ظاهرين قدامك دلوقتي!\n` +
+        `تقدر تضغط على أيقونة الميزان (⚖️) على أكتر من قطعة عشان نقارن بينهم سوا.` +
+        (shippingSaveHintAr ? `\n\n${shippingSaveHintAr}` : ''),
+      filterToApply: {
+        labelAr: `هدية: ${occ.labelAr.replace(/\s*[💐🏡🍼🎁🏢]/g, '')}${!privacy?.hidePrices && bud.id !== 'any_budget' ? ` · ${bud.labelAr}` : ''}`,
+        matchedIds: finalList.map((i) => i.id),
+        maxPriceEgp: privacy?.hidePrices ? undefined : bud.maxEgp,
+        minPriceEgp: privacy?.hidePrices ? undefined : bud.minEgp,
+        occasionAr: occ.labelAr,
+        sortBy: 'featured',
+      },
+      shippingSaveHintAr,
+      options: [
+        { id: 'gw_cheapest', label: 'رتّبهم من الأرخص 💰', action: 'query', payload: 'رتب الأرخص' },
+        { id: 'gw_compare', label: 'افتح المقارنة (⚖️)', action: 'open_compare' },
+        { id: 'gw_reset', label: 'إلغاء الفلتر / عرض الكل', action: 'clear_filter' },
+      ],
     },
-    shippingSaveHintAr,
-    options: [
-      { id: 'gw_cheapest', label: 'رتّبهم من الأرخص 💰', action: 'query', payload: 'رتب الأرخص' },
-      { id: 'gw_compare', label: 'افتح المقارنة (⚖️)', action: 'open_compare' },
-      { id: 'gw_reset', label: 'إلغاء الفلتر / عرض الكل', action: 'clear_filter' },
-    ],
-  };
+    isAuthenticated,
+    'gift_shopping'
+  );
 }
 
 /**
@@ -306,14 +371,16 @@ export function processMarketShamousaMessage(input: {
   mode: MarketSurfaceMode;
   catalog: SanitizedPublicCatalogItem[];
   storeName?: string;
+  storeId?: string;
   privacy?: StorePrivacySettings;
   isAuthenticated?: boolean;
   compareCount?: number;
   favoritesCount?: number;
 }): ShamousaMarketReply {
-  const { rawQuery, mode, catalog, storeName, privacy, isAuthenticated = false } = input;
+  const { rawQuery, mode, catalog, storeName, storeId, privacy, isAuthenticated = false } = input;
   const qNorm = normalizeArabicKnowledgeText(rawQuery);
   const isSupplierSurface = mode === 'suppliers_market' || mode === 'supplier_storefront';
+  const defaultCtaContext: GuestCtaContext = isSupplierSurface ? 'supplier_materials' : 'general_market';
 
   if (!qNorm) {
     return {
@@ -326,58 +393,111 @@ export function processMarketShamousaMessage(input: {
 
   // 1) إلغاء الفلتر / عرض الكل
   if (/^(الغاء الفلتر|اعرض الكل|عرض الكل|الكل|رجع كل المنتجات|امسح الفلتر)$/.test(qNorm)) {
-    return {
-      text: `تمام ☀️ رجّعتلك كل المعروضات (${catalog.length}) على الصفحة بدون أي فلتر.`,
-      clearFilter: true,
-      options: buildDefaultMarketOptions(isSupplierSurface),
-    };
+    return attachGuestContextualCta(
+      {
+        text: `تمام ☀️ رجّعتلك كل المعروضات (${catalog.length}) على الصفحة بدون أي فلتر.`,
+        clearFilter: true,
+        options: buildDefaultMarketOptions(isSupplierSurface),
+      },
+      isAuthenticated,
+      defaultCtaContext,
+      storeName
+    );
   }
 
   // 2) بدء معالج «هدية سريعة»
   if (/(هديه سريعه|عايز هديه|عاوزه هديه|بدور على هديه|اختارلي هديه|معالج الهديه)/.test(qNorm) && !extractPriceBounds(rawQuery).maxPriceEgp) {
-    return {
-      text: `🎁 **معالج الهدية السريعة (خطوتين بس):**\nقولي المناسبة إيه الأول عشان أصفّيلك أنسب القطع على الشاشة؟`,
-      options: QUICK_GIFT_OCCASIONS.slice(0, 4).map((o) => ({
-        id: `occ_${o.id}`,
-        label: o.labelAr,
-        action: 'gift_occasion',
-        payload: o.id,
-      })),
-    };
+    return attachGuestContextualCta(
+      {
+        text: `🎁 **معالج الهدية السريعة (خطوتين بس):**\nقولي المناسبة إيه الأول عشان أصفّيلك أنسب القطع على الشاشة؟`,
+        options: QUICK_GIFT_OCCASIONS.slice(0, 4).map((o) => ({
+          id: `occ_${o.id}`,
+          label: o.labelAr,
+          action: 'gift_occasion',
+          payload: o.id,
+        })),
+      },
+      isAuthenticated,
+      'gift_shopping',
+      storeName
+    );
   }
 
-  // 3) Lead Magnet: لو بيسأل عن مشكلة فنية في حرفة (ريزن/شموع/مكرمية/صابون/ليزر...)
-  const leadMagnet = checkTechnicalProblemLeadMagnetOffline(rawQuery, isAuthenticated);
-  if (leadMagnet) return leadMagnet;
+  // 2.5) عروض المنصة والمتاجر ونظام النقاط والمحافظ المنفصلة (أوفلاين 100%)
+  if (/(عروض|عرض|خصم|خصومات|نقاط|النقطه بكام|النقاط|محفظه|محفظة|ولاء|كاش باك)/.test(qNorm)) {
+    const loyaltyCfg = loadLoyaltyConfig();
+    const activeOffers = getActivePublicOffers(storeId);
+    const offersLines =
+      activeOffers.length > 0
+        ? activeOffers
+            .slice(0, 4)
+            .map((o, idx) => `${idx + 1}. **${o.titleAr}** (${o.badgeAr}) — ${o.subtitleAr}`)
+            .join('\n')
+        : '• لا توجد حملات إضافية مفعّلة حالياً، لكن نظام النقاط يعمل تلقائياً على كل طلب موثّق!';
+
+    return attachGuestContextualCta(
+      {
+        text:
+          `🎁 **عروض ونقاط الشمساوية النشطة حالياً:**\n` +
+          `• **قيمة النقطة الآن:** كل **1 نقطة = ${loyaltyCfg.pointValueEgp} ج.م** (تُحدّث بمرونة من إدارة المنصة).\n` +
+          `• **محفظة التسوق للعملاء:** تخصم حتى **${loyaltyCfg.customerMaxDiscountPercent}%** من قيمة السلة — والخصم مموّل بالكامل من المنصة ولا يُخصم جنيه واحد من صافي ربح الفنان!\n` +
+          `• **محفظة الباقات للورش والموردين:** منفصلة تماماً وتُستخدم فقط لتغطية اشتراكات وباقات المنصة.\n\n` +
+          `🔥 **العروض المفعّلة دلوقتي:**\n${offersLines}`,
+        options: [
+          ...(!isSupplierSurface
+            ? [{ id: 'off_gift', label: 'معالج هدية سريعة 🎁', action: 'query' as const, payload: 'هدية سريعة' }]
+            : [{ id: 'off_wh', label: 'خامات بسعر الجملة 📦', action: 'query' as const, payload: 'خامات جملة' }]),
+          { id: 'off_all', label: 'تصفح كل المعروضات ☀️', action: 'clear_filter' },
+        ],
+      },
+      isAuthenticated,
+      'offers_loyalty',
+      storeName
+    );
+  }
+
+  // 3) مكتبة المشاكل الفنية مفتوحة بالكامل أوفلاين (بدون قفل 3 سطور!)
+  const techDiagnosis = checkTechnicalProblemLeadMagnetOffline(rawQuery, isAuthenticated);
+  if (techDiagnosis) return techDiagnosis;
 
   // 4) سؤال عن السعر والمتجر قافل عرض الأسعار (احترام خصوصية المتجر!)
   if (privacy?.hidePrices && /(سعر|بكام|تحت|ارخص|أرخص|ميزانيه|جنيه)/.test(qNorm)) {
-    return {
-      text: `بناءً على إعدادات متجر **${storeName || 'المتجر'}**، الأسعار غير معروضة علناً في الكتالوج حالياً.${
-        privacy.disableWhatsapp
-          ? ' تقدر تضغط على أي منتج لمعرفة تفاصيله ومقاساته المتاحة.'
-          : ' تقدر تختار القطع اللي عجبتك في المفضلة (❤️) أو المقارنة (⚖️) وتتواصل مع المتجر مباشرة للاستفسار عن السعر.'
-      }`,
-      options: [
-        { id: 'pr_fav', label: 'افتح المفضلة ❤️', action: 'open_favorites' },
-        { id: 'pr_cmp', label: 'افتح المقارنة ⚖️', action: 'open_compare' },
-        { id: 'pr_all', label: 'عرض كل المنتجات', action: 'clear_filter' },
-      ],
-    };
+    return attachGuestContextualCta(
+      {
+        text: `بناءً على إعدادات متجر **${storeName || 'المتجر'}**، الأسعار غير معروضة علناً في الكتالوج حالياً.${
+          privacy.disableWhatsapp
+            ? ' تقدر تضغط على أي منتج لمعرفة تفاصيله ومقاساته المتاحة.'
+            : ' تقدر تختار القطع اللي عجبتك في المفضلة (❤️) أو المقارنة (⚖️) وتتواصل مع المتجر مباشرة للاستفسار عن السعر.'
+        }`,
+        options: [
+          { id: 'pr_fav', label: 'افتح المفضلة ❤️', action: 'open_favorites' },
+          { id: 'pr_cmp', label: 'افتح المقارنة ⚖️', action: 'open_compare' },
+          { id: 'pr_all', label: 'عرض كل المنتجات', action: 'clear_filter' },
+        ],
+      },
+      isAuthenticated,
+      defaultCtaContext,
+      storeName
+    );
   }
 
   // 5) طلب مساعدة في المقارنة
   if (/(قارن|مقارنه|محتار بين|ساعدني اختار|الميزان)/.test(qNorm)) {
-    return {
-      text:
-        (input.compareCount || 0) > 0
-          ? `عندك حالياً **${input.compareCount}** عناصر في المقارنة (⚖️) منفصلة تماماً عن السلة! افتح شاشة المقارنة دلوقتي واضغط «خلّي شموسة تساعدني أختار» عشان أصفّيهم لأفضل 2–3 خيارات.`
-          : `فكرة ممتازة! اضغط على أيقونة الميزان **(⚖️)** على أي عدد من المنتجات اللي عجبتك (حتى 12 منتج بدون ما تزحم السلة)، وبعدها افتح المقارنة وهساعدك تختار الأنسب.`,
-      options: [
-        { id: 'cmp_open', label: 'افتح شاشة المقارنة (⚖️)', action: 'open_compare' },
-        { id: 'cmp_fav', label: 'افتح المفضلة (❤️)', action: 'open_favorites' },
-      ],
-    };
+    return attachGuestContextualCta(
+      {
+        text:
+          (input.compareCount || 0) > 0
+            ? `عندك حالياً **${input.compareCount}** عناصر في المقارنة (⚖️) منفصلة تماماً عن السلة! افتح شاشة المقارنة دلوقتي واضغط «خلّي شموسة تساعدني أختار» عشان أصفّيهم لأفضل 2–3 خيارات.`
+            : `فكرة ممتازة! اضغط على أيقونة الميزان **(⚖️)** على أي عدد من المنتجات اللي عجبتك (حتى 12 منتج بدون ما تزحم السلة)، وبعدها افتح المقارنة وهساعدك تختار الأنسب.`,
+        options: [
+          { id: 'cmp_open', label: 'افتح شاشة المقارنة (⚖️)', action: 'open_compare' },
+          { id: 'cmp_fav', label: 'افتح المفضلة (❤️)', action: 'open_favorites' },
+        ],
+      },
+      isAuthenticated,
+      defaultCtaContext,
+      storeName
+    );
   }
 
   // 6) تحليل نية الفلترة الذكية (ميزانية + لون + مناسبة + شحن مجاني + جاهز + جملة + حرفة/كلمات)
@@ -477,21 +597,26 @@ export function processMarketShamousaMessage(input: {
       sortBy === 'featured'
     ) {
       // لا يوجد تطابق مباشر -> نرجع اقتراحات توضيحية ذكية بدون إخفاء كل السوق
-      return {
-        text: `ما لقيتش تطابق حرفي لـ «${rawQuery.trim()}» في المعروضات الحالية (${catalog.length} صنف).\nتحب تجرّب اختيار من دول أو نلغي الفلتر ونشوف الكل؟`,
-        options: [
-          ...(isSupplierSurface
-            ? [
-                { id: 'nf_w', label: 'خامات بسعر الجملة 📦', action: 'query' as const, payload: 'خامات جملة' },
-                { id: 'nf_c', label: 'الأرخص سعراً 💰', action: 'query' as const, payload: 'رتب الأرخص' },
-              ]
-            : [
-                { id: 'nf_g', label: 'معالج هدية سريعة 🎁', action: 'query' as const, payload: 'هدية سريعة' },
-                { id: 'nf_c', label: 'الأرخص سعراً 💰', action: 'query' as const, payload: 'رتب الأرخص' },
-              ]),
-          { id: 'nf_all', label: 'عرض الكل ☀️', action: 'clear_filter' },
-        ],
-      };
+      return attachGuestContextualCta(
+        {
+          text: `ما لقيتش تطابق حرفي لـ «${rawQuery.trim()}» في المعروضات الحالية (${catalog.length} صنف).\nتحب تجرّب اختيار من دول أو نلغي الفلتر ونشوف الكل؟`,
+          options: [
+            ...(isSupplierSurface
+              ? [
+                  { id: 'nf_w', label: 'خامات بسعر الجملة 📦', action: 'query' as const, payload: 'خامات جملة' },
+                  { id: 'nf_c', label: 'الأرخص سعراً 💰', action: 'query' as const, payload: 'رتب الأرخص' },
+                ]
+              : [
+                  { id: 'nf_g', label: 'معالج هدية سريعة 🎁', action: 'query' as const, payload: 'هدية سريعة' },
+                  { id: 'nf_c', label: 'الأرخص سعراً 💰', action: 'query' as const, payload: 'رتب الأرخص' },
+                ]),
+            { id: 'nf_all', label: 'عرض الكل ☀️', action: 'clear_filter' },
+          ],
+        },
+        isAuthenticated,
+        defaultCtaContext,
+        storeName
+      );
     }
   }
 
@@ -527,53 +652,63 @@ export function processMarketShamousaMessage(input: {
       : undefined;
 
   if (filtered.length === 0) {
-    return {
-      text: `ما لقيتش نتائج مطابقة للفلتر (**${labelAr}**) في المعروضات الحالية.\nجرب تزود الميزانية شوية أو اضغط «إلغاء الفلتر / عرض الكل».`,
-      options: [
-        { id: 'z_all', label: 'إلغاء الفلتر / عرض الكل', action: 'clear_filter' },
-        { id: 'z_cheap', label: 'اعرض الأرخص المتاح 💰', action: 'query', payload: 'رتب الأرخص' },
-      ],
-    };
+    return attachGuestContextualCta(
+      {
+        text: `ما لقيتش نتائج مطابقة للفلتر (**${labelAr}**) في المعروضات الحالية.\nجرب تزود الميزانية شوية أو اضغط «إلغاء الفلتر / عرض الكل».`,
+        options: [
+          { id: 'z_all', label: 'إلغاء الفلتر / عرض الكل', action: 'clear_filter' },
+          { id: 'z_cheap', label: 'اعرض الأرخص المتاح 💰', action: 'query', payload: 'رتب الأرخص' },
+        ],
+      },
+      isAuthenticated,
+      defaultCtaContext,
+      storeName
+    );
   }
 
-  return {
-    text:
-      `✨ **فلترتلك الصفحة على (${filtered.length}) ${isSupplierSurface ? 'صنف خامة' : 'منتج'}** حسب طلبك (**${labelAr}**).\n` +
-      `تقدر تضيف أي قطع للمقارنة (⚖️) أو المفضلة (❤️) أو تلغي الفلتر من الشريط اللي فوق في أي لحظة.` +
-      (shippingSaveHintAr ? `\n\n${shippingSaveHintAr}` : ''),
-    filterToApply: {
-      labelAr,
-      matchedIds: filtered.map((i) => i.id),
-      queryText: rawQuery.trim(),
-      maxPriceEgp: priceBounds.maxPriceEgp,
-      minPriceEgp: priceBounds.minPriceEgp,
-      readyNowOnly,
-      freeShippingOnly,
-      wholesaleOnly,
-      sortBy,
+  return attachGuestContextualCta(
+    {
+      text:
+        `✨ **فلترتلك الصفحة على (${filtered.length}) ${isSupplierSurface ? 'صنف خامة' : 'منتج'}** حسب طلبك (**${labelAr}**).\n` +
+        `تقدر تضيف أي قطع للمقارنة (⚖️) أو المفضلة (❤️) أو تلغي الفلتر من الشريط اللي فوق في أي لحظة.` +
+        (shippingSaveHintAr ? `\n\n${shippingSaveHintAr}` : ''),
+      filterToApply: {
+        labelAr,
+        matchedIds: filtered.map((i) => i.id),
+        queryText: rawQuery.trim(),
+        maxPriceEgp: priceBounds.maxPriceEgp,
+        minPriceEgp: priceBounds.minPriceEgp,
+        readyNowOnly,
+        freeShippingOnly,
+        wholesaleOnly,
+        sortBy,
+      },
+      shippingSaveHintAr,
+      options: [
+        ...(sortBy !== 'price_asc' && !privacy?.hidePrices
+          ? [{ id: 'opt_cheap', label: 'رتّب الأرخص 💰', action: 'query' as const, payload: `${rawQuery} أرخص` }]
+          : []),
+        { id: 'opt_cmp', label: 'افتح المقارنة ⚖️', action: 'open_compare' },
+        { id: 'opt_clear', label: 'إلغاء الفلتر / عرض الكل', action: 'clear_filter' },
+      ],
     },
-    shippingSaveHintAr,
-    options: [
-      ...(sortBy !== 'price_asc' && !privacy?.hidePrices
-        ? [{ id: 'opt_cheap', label: 'رتّب الأرخص 💰', action: 'query' as const, payload: `${rawQuery} أرخص` }]
-        : []),
-      { id: 'opt_cmp', label: 'افتح المقارنة ⚖️', action: 'open_compare' },
-      { id: 'opt_clear', label: 'إلغاء الفلتر / عرض الكل', action: 'clear_filter' },
-    ],
-  };
+    isAuthenticated,
+    matchedOccasion ? 'gift_shopping' : defaultCtaContext,
+    storeName
+  );
 }
 
 function buildDefaultMarketOptions(isSupplierSurface: boolean): ShamousaMarketQuickOption[] {
   if (isSupplierSurface) {
     return [
       { id: 'sup_1', label: 'خامات بسعر الجملة 📦', action: 'query', payload: 'خامات جملة' },
-      { id: 'sup_2', label: 'الأرخص سعراً 💰', action: 'query', payload: 'رتب الأرخص' },
+      { id: 'sup_2', label: 'العروض والنقاط 🎁', action: 'query', payload: 'العروض والنقاط' },
       { id: 'sup_3', label: 'قارن الخامات (⚖️)', action: 'open_compare' },
     ];
   }
   return [
     { id: 'mkt_1', label: 'معالج هدية سريعة 🎁', action: 'query', payload: 'هدية سريعة' },
-    { id: 'mkt_2', label: 'منتجات تحت 500 ج.م 💰', action: 'query', payload: 'تحت 500 جنيه' },
+    { id: 'mkt_2', label: 'عروض ونقاط السوق 🔥', action: 'query', payload: 'العروض والنقاط' },
     { id: 'mkt_3', label: 'المقارنة (⚖️)', action: 'open_compare' },
   ];
 }

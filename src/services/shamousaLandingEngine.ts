@@ -6,11 +6,12 @@
  * - يجيب على أدق تفاصيل المنظومة بالكلمات المفتاحية ومعالجة الأخطاء الإملائية (Levenshtein/Trigram).
  * - لو السؤال غامض: يعرض أقرب المواضيع كأزرار + «لا مش قصدي ده — أقصد حاجة تانية».
  * - لو السؤال خارج المنظومة: يفتح حواراً ودوداً لجمع مقترح الزائر وإرساله لإشعارات السوبر أدمن!
- * - Lead Magnet أوفلاين لمكتبة المشاكل الفنية: أول 3 نقاط مجاناً + دعوة تسجيل مجاني لفتح الباقي.
+ * - مكتبة المشاكل الفنية مفتوحة بالكامل أوفلاين (الحل الكامل + تحذيرات السلامة بدون حجب) مع دعوة «سجّل دلوقتي مجاناً» سياقية على كل رد حسب الموضوع.
  */
 
 import { normalizeArabicKnowledgeText, trigramSimilarity } from './shamousaKnowledgeStore';
 import { checkTechnicalProblemLeadMagnetOffline } from './shamousaMarketEngine';
+import { loadLoyaltyConfig } from './loyaltyWalletsService';
 
 export type LandingVisitorRole = 'artisan' | 'supplier' | 'customer' | 'trainer';
 export type LandingVisitorLevel = 'beginner' | 'active' | 'scale';
@@ -185,6 +186,20 @@ export const LANDING_PLATFORM_TOPICS: LandingKnowledgeTopic[] = [
     visibleSectionIds: ['landing-hero', 'landing-systems', 'landing-packages'],
     ctaAction: 'register_artisan',
     ctaLabelAr: 'أنشئ صفحتك كخبير/مدرب 🎓',
+  },
+  {
+    id: 'loyalty_wallets_offers',
+    titleAr: 'النقاط والمحافظ المنفصلة والعروض التحفيزية',
+    keywords: ['نقاط', 'محفظه', 'محفظة', 'عروض', 'خصم', 'ولاء', 'مكافات', 'النقطه بكام', 'محفظه الباقات', 'محفظه التسوق'],
+    answerAr:
+      'منظومة التحفيز والنقاط في الشمساوية مصمّمة بذكاء وعدالة عشان تحمي كل الأطراف 🎁:\n' +
+      '• **محفظة الباقات (للورش والموردين والمدربين):** بتكسب نقاط من تجهيز متجرك ومشاركتك، وتغطّي بيها باقات المنصة فقط بدون ما تضر هامش أي ورشة.\n' +
+      '• **محفظة التسوق (للعملاء):** بتكسب نقاط على طلباتك وتقييماتك الموثّقة وتخصم بيها في السلة حتى 10–15% — والخصم **مموّل بالكامل من المنصة ولا يُخصم من صافي ربح الفنان**!\n' +
+      '• وعروض المنصة المفعّلة شغالة مباشرة في سوق الشمسية ومتاجر الفنانين.',
+    scrollToSectionId: 'landing-packages',
+    visibleSectionIds: ['landing-hero', 'landing-markets', 'landing-packages'],
+    ctaAction: 'register_artisan',
+    ctaLabelAr: 'سجّل دلوقتي واستلم نقاطك الترحيبية 🎁',
   },
 ];
 
@@ -395,20 +410,20 @@ export function processLandingShamousaMessage(input: {
     };
   }
 
-  // 2) Lead Magnet أوفلاين لو زائر صفحة الهبوط سأل عن مشكلة فنية في حرفة!
-  const leadMagnet = checkTechnicalProblemLeadMagnetOffline(trimmed, false);
-  if (leadMagnet) {
+  // 2) مكتبة المشاكل الفنية مفتوحة بالكامل أوفلاين (الحل الكامل + السلامة بدون قفل 3 سطور!) + دعوة تسجيل سياقية
+  const techDiagnosis = checkTechnicalProblemLeadMagnetOffline(trimmed, false);
+  if (techDiagnosis) {
     return {
-      text: leadMagnet.text,
-      isLeadMagnetLocked: true,
+      text: techDiagnosis.text,
+      isLeadMagnetLocked: false,
       options: [
         {
-          id: 'land_lm_reg',
-          label: 'اعرض باقي الحلول + السلامة (تسجيل مجاني) ✨',
+          id: 'land_tech_reg',
+          label: 'سجّل ورشتك دلوقتي مجاناً ✨',
           action: 'navigate',
           payload: 'register_artisan',
         },
-        { id: 'land_lm_calc', label: 'شوف حاسبة الورش 🧮', action: 'ask_topic', payload: 'calculator_workshops' },
+        { id: 'land_tech_calc', label: 'شوف حاسبة الورش 🧮', action: 'ask_topic', payload: 'calculator_workshops' },
       ],
     };
   }
@@ -441,6 +456,11 @@ export function processLandingShamousaMessage(input: {
   // تطابق واثق
   if (top && top.score >= 5) {
     const t = top.topic;
+    const cfg = loadLoyaltyConfig();
+    const extraLoyaltyLine =
+      t.id === 'loyalty_wallets_offers'
+        ? `\n• **سعر النقطة الحالي:** 1 نقطة = **${cfg.pointValueEgp} ج.م** (سقف خصم محفظة التسوق: **${cfg.customerMaxDiscountPercent}%**).`
+        : '';
     const filter: LandingSectionFilter = {
       id: `topic_${t.id}`,
       role: visitorRole,
@@ -451,7 +471,9 @@ export function processLandingShamousaMessage(input: {
       recommendedCtaLabelAr: t.ctaLabelAr,
     };
     return {
-      text: `${t.answerAr}\n\nفلترتلك الشاشة على القسم ده دلوقتي — وتقدر تلغي الفلتر في أي وقت أو تروح مباشرة للتسجيل:`,
+      text:
+        `${t.answerAr}${extraLoyaltyLine}\n\n` +
+        `فلترتلك الشاشة على القسم ده دلوقتي — **سجّل دلوقتي مجاناً** عشان تجرّبه بنفسك فوراً أو الغي الفلتر في أي وقت:`,
       filterToApply: filter,
       options: [
         { id: `cta_${t.id}`, label: t.ctaLabelAr, action: 'navigate', payload: t.ctaAction },
@@ -461,11 +483,13 @@ export function processLandingShamousaMessage(input: {
     };
   }
 
-  // تطابق متوسط -> نعرض أقرب 3 اختيارات + "لا مش قصدي ده"
+  // تطابق متوسط -> نعرض أقرب 3 اختيارات + "لا مش قصدي ده" + دعوة تسجيل سياقية
   const closeCandidates = scored.filter((s) => s.score >= 2.2).slice(0, 3);
   if (closeCandidates.length > 0) {
     return {
-      text: `فهمتك جزئياً ☀️ تقصد حاجة من الأقسام القريبة دي في المنظومة؟ اختار اللي تقصده أو قولي «أقصد حاجة تانية»:`,
+      text:
+        `فهمتك جزئياً ☀️ تقصد حاجة من الأقسام القريبة دي في المنظومة؟ اختار اللي تقصده أو قولي «أقصد حاجة تانية»:\n` +
+        `✨ وتقدر **تسجّل دلوقتي مجاناً** وتجرّب كل الأقسام دي جوه حسابك فوراً!`,
       options: [
         ...closeCandidates.map((c) => ({
           id: `cl_${c.topic.id}`,
@@ -473,20 +497,22 @@ export function processLandingShamousaMessage(input: {
           action: 'ask_topic' as const,
           payload: c.topic.id,
         })),
+        { id: 'cl_reg', label: 'سجّل دلوقتي مجاناً ✨', action: 'navigate', payload: visitorRole === 'supplier' ? 'register_supplier' : 'register_artisan' },
         { id: 'cl_other', label: 'لا مش قصدي ده — أقصد حاجة تانية 💡', action: 'not_what_i_meant', payload: trimmed },
       ],
     };
   }
 
-  // خارج المنظومة -> التقاط المقترح التفاعلي وإرساله للسوبر أدمن!
+  // خارج المنظومة -> التقاط المقترح التفاعلي وإرساله للسوبر أدمن + دعوة تسجيل لطيفة
   return {
     text:
       `سؤال حلو ومختلف الصراحة! ☀️\n` +
       `النقطة دي (**«${trimmed.slice(0, 80)}»**) مش موجودة بالشكل ده جوه المنظومة حالياً…\n` +
       `بس قولي رأيك بصراحة: **لو ضفنا ميزة زي كده في الشمساوية، تحب تكون شغالة إزاي وتفيدك في إيه؟**\n` +
-      `اكتبلي مقترحك في رسالة واحدة وهبعته فوراً لإدارة الشمساوية (السوبر أدمن)!`,
+      `اكتبلي مقترحك في رسالة واحدة وهبعته فوراً لإدارة الشمساوية (السوبر أدمن) — وتقدر كمان **تسجّل دلوقتي مجاناً** عشان تتابع التحديثات أول بأول!`,
     awaitingVisitorSuggestionFor: trimmed,
     options: [
+      { id: 'oos_reg', label: 'سجّل دلوقتي مجاناً ✨', action: 'navigate', payload: visitorRole === 'supplier' ? 'register_supplier' : 'register_artisan' },
       { id: 'oos_no', label: 'لأ تمام، ورّيني إيه الموجود حالياً', action: 'clear_filter' },
       { id: 'oos_pkgs', label: 'شوف الباقات المتاحة 👑', action: 'ask_topic', payload: 'packages_pricing' },
     ],

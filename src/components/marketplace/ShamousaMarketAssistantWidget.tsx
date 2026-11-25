@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Gift,
-  Lock,
   RotateCcw,
   Scale,
   Send,
@@ -183,10 +182,11 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
           ]
         : [
             { id: 'w_a1', label: 'معالج هدية سريعة 🎁', action: 'query', payload: 'هدية سريعة' },
-            ...(!privacy?.hidePrices
-              ? [{ id: 'w_a2', label: 'هدايا تحت 500 ج.م 💰', action: 'query' as const, payload: 'تحت 500 جنيه' }]
-              : []),
+            { id: 'w_a2', label: 'عروض ونقاط السوق 🔥', action: 'query', payload: 'العروض والنقاط' },
             { id: 'w_a3', label: 'افتح المقارنة (⚖️)', action: 'open_compare' },
+            ...(!isAuthenticated
+              ? [{ id: 'w_a4', label: 'سجّل دلوقتي مجاناً ✨', action: 'open_register' as const }]
+              : []),
           ],
     },
   ]);
@@ -273,7 +273,7 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
     if (opt.action === 'gift_occasion' && opt.payload) {
       const occ = QUICK_GIFT_OCCASIONS.find((o) => o.id === opt.payload);
       if (privacy?.hidePrices) {
-        const res = runQuickGiftWizardOffline(opt.payload, 'any_budget', catalog, privacy);
+        const res = runQuickGiftWizardOffline(opt.payload, 'any_budget', catalog, privacy, isAuthenticated);
         if (res.filterToApply) onApplyFilter(res.filterToApply, res.shippingSaveHintAr || null);
         setMessages((prev) => [
           ...prev,
@@ -301,7 +301,7 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
     }
     if (opt.action === 'gift_budget' && opt.payload) {
       const [occId, budId] = opt.payload.split('|');
-      const res = runQuickGiftWizardOffline(occId, budId, catalog, privacy);
+      const res = runQuickGiftWizardOffline(occId, budId, catalog, privacy, isAuthenticated);
       if (res.filterToApply) {
         onApplyFilter(res.filterToApply, res.shippingSaveHintAr || null);
         playSuccessSound();
@@ -482,7 +482,7 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
         )}
       </div>
 
-      {/* Lead Magnet Registration Modal (Technical Problems Full Unlock) */}
+      {/* Friendly Contextual Registration Invitation Modal */}
       {leadMagnetModalOpen && (
         <div
           className="fixed inset-0 z-[130] bg-[#060B18]/75 backdrop-blur-xs flex items-center justify-center p-4"
@@ -496,14 +496,14 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
                 <div className="w-10 h-10 rounded-2xl bg-[#EA580C]/15 text-[#EA580C] flex items-center justify-center shrink-0">
-                  <Lock className="w-5 h-5" />
+                  <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                    افتح مكتبة الحلول الفنية كاملة مجاناً
+                    سجّل دلوقتي مجاناً في الشمساوية ☀️
                   </h3>
                   <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
-                    22 مشكلة فنية + الخامات البديلة الموحدة + تحذيرات السلامة
+                    احفظ مفضلتك ومقارنتك واكسب نقاطك الترحيبية فوراً
                   </p>
                 </div>
               </div>
@@ -517,7 +517,7 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
             </div>
 
             <p className="text-xs text-[#475569] dark:text-[#CBD5E1] leading-relaxed">
-              سجّل حسابك المجاني في الشمساوية في 30 ثانية (أو بكود مدربك/مورّدك) عشان تفتح باقي خطوات الحلول الفنية، خامات التخصص الموحدة، وتستلم نقاطك الترحيبية فوراً!
+              حسابك المجاني بيفتحلك حفظ المفضلة والمقارنة على كل أجهزتك، ومحفظة نقاط التسوق بخصومات مموّلة من المنصة بالكامل (أو محفظة الباقات وحاسبة التكاليف لورشتك)!
             </p>
 
             <div className="flex items-center gap-2">
@@ -530,14 +530,14 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
                 className="flex-1 px-4 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <UserPlus className="w-4 h-4" />
-                <span>إنشاء حساب مجاني الآن</span>
+                <span>سجّل دلوقتي مجاناً ✨</span>
               </button>
               <button
                 type="button"
                 onClick={() => setLeadMagnetModalOpen(false)}
                 className="px-4 py-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#243968] text-xs font-bold text-[#475569] dark:text-[#CBD5E1] cursor-pointer"
               >
-                لاحقاً
+                كمّل تصفح
               </button>
             </div>
           </div>
