@@ -1,7 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CustomerAuthUser } from '../../types';
 import { saveStoredCustomerSession } from '../../services/marketplaceCartService';
 import { playSuccessSound } from '../../lib/sounds';
+import {
+  ReferralResolvePreview,
+  capturePendingReferralCodeFromUrl,
+  claimReferralCodeLocal,
+  normalizeReferralCode,
+  resolveReferralCodeLocal,
+  resolveReferralCodeServer,
+} from '../../services/referralSystemService';
 import {
   User,
   Phone,
@@ -13,6 +21,7 @@ import {
   Sparkles,
   ArrowRight,
   ShieldCheck,
+  Gift,
 } from 'lucide-react';
 
 interface CustomerAuthModalProps {
@@ -34,7 +43,28 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   const [governorate, setGovernorate] = useState('القاهرة');
   const [detailedAddress, setDetailedAddress] = useState('');
   const [alternateAddress, setAlternateAddress] = useState('');
+  const [referralCode, setReferralCode] = useState<string>(() => capturePendingReferralCodeFromUrl() || '');
+  const [referralPreview, setReferralPreview] = useState<ReferralResolvePreview>(() =>
+    resolveReferralCodeLocal(capturePendingReferralCodeFromUrl() || '')
+  );
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const norm = normalizeReferralCode(referralCode);
+    setReferralPreview(resolveReferralCodeLocal(norm));
+    if (!norm || norm.length < 4) return;
+    let active = true;
+    const t = window.setTimeout(() => {
+      resolveReferralCodeServer(norm).then((p) => {
+        if (active) setReferralPreview(p);
+      });
+    }, 350);
+    return () => {
+      active = false;
+      window.clearTimeout(t);
+    };
+  }, [referralCode, isOpen]);
 
   if (!isOpen) return null;
 
@@ -53,15 +83,28 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       return;
     }
 
+    const newCustomerId = 'cust_' + Date.now();
+    const claimRes = claimReferralCodeLocal({
+      inviteeAccountId: phone.trim() || newCustomerId,
+      inviteeName: name.trim(),
+      inviteeTrack: 'artisan',
+      inviteeWalletType: 'shopping_wallet',
+      referralCode: normalizeReferralCode(referralCode) || undefined,
+    });
+
+    const grantedPoints = claimRes.ok && claimRes.welcomePointsGranted > 0
+      ? claimRes.welcomePointsGranted
+      : referralPreview.welcomePoints || 10;
+
     const newUser: CustomerAuthUser = {
-      id: 'cust_' + Date.now(),
+      id: newCustomerId,
       name: name.trim(),
       phone: phone.trim(),
       alternatePhone: alternatePhone.trim() || undefined,
       governorate,
       detailedAddress: detailedAddress.trim(),
       alternateAddress: alternateAddress.trim() || undefined,
-      loyaltyPoints: 50, // 50 Welcome bonus loyalty points
+      loyaltyPoints: grantedPoints,
       firstOrderDiscountUsed: false,
     };
 
@@ -123,7 +166,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
               تسجيل حساب عميل - عائلة الشمساوية
             </h3>
             <p className="text-xs text-[#334155] dark:text-[#CBD5E1]">
-              احصل على كود خصم 5% فوري + 50 نقطة ولاء مجانية في محفظتك 🎁
+              احصل على كود خصم 5% فوري + {referralPreview.welcomePoints} نقطة ترحيبية مموّلة من المنصة 🎁
             </p>
           </div>
         </div>
@@ -236,6 +279,30 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
               placeholder="اختياري لتسليم الشحنة في حال عدم تواجدك"
               className="w-full px-3.5 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold outline-none focus:border-[#EA580C]"
             />
+          </div>
+
+          {/* Optional Tri-Track Referral Code */}
+          <div className="p-3 rounded-2xl bg-[#FFFDF8] dark:bg-[#132040]/80 border border-[#EA580C]/35 space-y-1.5">
+            <label className="flex items-center justify-between text-[#0C1427] dark:text-[#F7F3EA] font-black">
+              <span className="inline-flex items-center gap-1.5">
+                <Gift className="w-3.5 h-3.5 text-[#EA580C]" />
+                <span>كود دعوة (اختياري — فنان / مورّد / مدرب)</span>
+              </span>
+              <span className="font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
+                +{referralPreview.welcomePoints} نقطة ترحيبية
+              </span>
+            </label>
+            <input
+              type="text"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              placeholder="مثال: ART-XXXXXX أو SUP-XXXXXX أو TRN-XXXXXX"
+              className="w-full px-3 py-2 rounded-xl bg-[#FAF7F0] dark:bg-[#0A1124] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-mono font-bold text-xs outline-none focus:border-[#EA580C]"
+              dir="ltr"
+            />
+            <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] leading-snug">
+              {referralPreview.messageAr}
+            </p>
           </div>
 
           <div className="pt-2 space-y-2">

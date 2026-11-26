@@ -11,7 +11,15 @@ import {
   Wallet,
   CheckCircle2,
   AlertTriangle,
+  Users,
+  Award,
 } from 'lucide-react';
+import {
+  AdminReferralsOverview,
+  buildLocalAdminReferralsOverview,
+  fetchAdminReferralsOverviewServer,
+  getReferralTrackLabelAr,
+} from '../../services/referralSystemService';
 import {
   AccountLoyaltyWallets,
   LoyaltyEconomyConfig,
@@ -41,10 +49,13 @@ export const AdminLoyaltyOffersPanel: React.FC<AdminLoyaltyOffersPanelProps> = (
   onNotifySuccess,
   onNotifyError,
 }) => {
-  const [activeTab, setActiveTab] = useState<'settings' | 'offers' | 'wallets'>('settings');
+  const [activeTab, setActiveTab] = useState<'settings' | 'offers' | 'wallets' | 'referrals'>('settings');
   const [config, setConfig] = useState<LoyaltyEconomyConfig>(() => loadLoyaltyConfig());
   const [offers, setOffers] = useState<PlatformPromotionalOffer[]>(() => loadPlatformOffers());
   const [wallets, setWallets] = useState<AccountLoyaltyWallets[]>(() => listAllLocalWallets());
+  const [referralsOverview, setReferralsOverview] = useState<AdminReferralsOverview>(() =>
+    buildLocalAdminReferralsOverview()
+  );
   const [saving, setSaving] = useState(false);
 
   // New Platform Offer Form
@@ -94,6 +105,7 @@ export const AdminLoyaltyOffersPanel: React.FC<AdminLoyaltyOffersPanelProps> = (
           }
         })
         .catch(() => {});
+      fetchAdminReferralsOverviewServer(token).then((ov) => setReferralsOverview(ov));
     });
   }, []);
 
@@ -230,12 +242,13 @@ export const AdminLoyaltyOffersPanel: React.FC<AdminLoyaltyOffersPanelProps> = (
       </div>
 
       {/* Tabs */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {(
           [
             { id: 'settings', label: 'تسعير النقطة وحماية الهامش', icon: <ShieldCheck className="w-4 h-4" /> },
             { id: 'offers', label: `عروض المنصة (${offers.filter((o) => o.active).length})`, icon: <Gift className="w-4 h-4" /> },
             { id: 'wallets', label: `المحافظ ومنح النقاط (${wallets.length})`, icon: <Wallet className="w-4 h-4" /> },
+            { id: 'referrals', label: `نظام الدعوات الثلاثي (${referralsOverview.totalActivations})`, icon: <Users className="w-4 h-4" /> },
           ] as const
         ).map((tab) => (
           <button
@@ -695,6 +708,152 @@ export const AdminLoyaltyOffersPanel: React.FC<AdminLoyaltyOffersPanelProps> = (
                       <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-black">
                         🛍️ تسوق: {w.shoppingWalletPoints} ن ({pointsToEgp(w.shoppingWalletPoints, config)} ج.م)
                       </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: TRI-TRACK REFERRAL SYSTEM OVERVIEW */}
+      {activeTab === 'referrals' && (
+        <div className="space-y-4">
+          {/* KPI Summary Grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 font-mono tabular-nums">
+            <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] p-3.5">
+              <span className="block text-[11px] font-sans font-bold text-[#475569] dark:text-[#94A3B8]">
+                مسار الفنانين (ART-)
+              </span>
+              <span className="text-xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                {referralsOverview.byTrack.artisan.activations} تفعيل
+              </span>
+              <span className="block text-[10px] font-sans text-[#64748B]">
+                من {referralsOverview.byTrack.artisan.profiles} كود نشط (15 نقطة ترحيب)
+              </span>
+            </div>
+
+            <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] p-3.5">
+              <span className="block text-[11px] font-sans font-bold text-[#475569] dark:text-[#94A3B8]">
+                مسار الموردين (SUP-)
+              </span>
+              <span className="text-xl font-black text-emerald-700 dark:text-emerald-400">
+                {referralsOverview.byTrack.supplier.activations} تفعيل
+              </span>
+              <span className="block text-[10px] font-sans text-[#64748B]">
+                ربط تلقائي في «مورديني المفضلين»
+              </span>
+            </div>
+
+            <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] p-3.5">
+              <span className="block text-[11px] font-sans font-bold text-[#475569] dark:text-[#94A3B8]">
+                مسار المدربين (TRN-)
+              </span>
+              <span className="text-xl font-black text-indigo-700 dark:text-indigo-300">
+                {referralsOverview.byTrack.trainer.activations} تفعيل
+              </span>
+              <span className="block text-[10px] font-sans text-[#64748B]">
+                25 نقطة + شارة «تحت إشراف مدرب معتمد 🎓»
+              </span>
+            </div>
+
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 dark:bg-amber-500/15 p-3.5">
+              <span className="block text-[11px] font-sans font-bold text-[#9A3412] dark:text-[#FBBF24]">
+                مكافآت الـ 50 نقطة المصروفة
+              </span>
+              <span className="text-xl font-black text-[#C2410C] dark:text-[#FBBF24]">
+                +{referralsOverview.totalMilestoneBonusPoints} نقطة
+              </span>
+              <span className="block text-[10px] font-sans text-[#78350F] dark:text-amber-200">
+                ({referralsOverview.totalMilestoneBonusesPaidCount} مكافآت × 50 ن في محفظة الباقات)
+              </span>
+            </div>
+          </div>
+
+          {/* Leaderboard */}
+          <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] p-4 space-y-3">
+            <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
+              <Award className="w-4 h-4 text-[#EA580C]" />
+              <span>أكثر الداعين نشاطاً عبر المسارات الثلاثة ({referralsOverview.topReferrers.length})</span>
+            </h3>
+            {referralsOverview.topReferrers.length === 0 ? (
+              <p className="text-xs text-[#64748B] dark:text-[#94A3B8] py-4 text-center">
+                لم يتم تسجيل أكواد دعوة نشطة بعد — ستظهر هنا إحصائيات الفنانين والموردين والمدربين تلقائياً.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {referralsOverview.topReferrers.map((p) => (
+                  <div
+                    key={p.accountId}
+                    className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#E5DEC9] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-black text-[#0C1427] dark:text-[#F7F3EA]">{p.displayName}</span>
+                        <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-white dark:bg-[#0A1124] border border-[#D4CCBC] dark:border-[#2B4378]">
+                          {p.code}
+                        </span>
+                        <span className="text-[10px] font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                          {getReferralTrackLabelAr(p.track)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono tabular-nums">
+                      <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-black">
+                        {p.verifiedActivationsCount} تفعيلات
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-[#9A3412] dark:text-[#FBBF24] font-black">
+                        +{p.totalBonusPointsEarned} ن مكافآت
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Recent Activations Log */}
+          <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] p-4 space-y-3">
+            <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+              آخر التفعيلات الحقيقية ({referralsOverview.recentActivations.length})
+            </h3>
+            {referralsOverview.recentActivations.length === 0 ? (
+              <p className="text-xs text-[#64748B] dark:text-[#94A3B8] py-3 text-center">
+                لا توجد تفعيلات دعوات مسجلة بعد.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {referralsOverview.recentActivations.slice(0, 15).map((act) => (
+                  <div
+                    key={act.id}
+                    className="p-2.5 rounded-xl bg-[#FAF7F0] dark:bg-[#132040]/70 border border-[#E5DEC9] dark:border-[#1E2E52] flex flex-wrap items-center justify-between gap-2 text-[11px]"
+                  >
+                    <div>
+                      <span className="font-black text-[#0C1427] dark:text-[#F7F3EA]">{act.inviteeName}</span>{' '}
+                      <span className="text-[#475569] dark:text-[#94A3B8]">
+                        انضم بدعوة <strong>{act.referrerName}</strong> ({act.referrerCode})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 font-mono">
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-black">
+                        +{act.welcomePointsGranted} ن ترحيب
+                      </span>
+                      {act.trainerBadgeGranted && (
+                        <span className="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-sans font-black">
+                          شارة مدرب 🎓
+                        </span>
+                      )}
+                      {act.supplierAutoLinked && (
+                        <span className="px-2 py-0.5 rounded bg-teal-500/15 text-teal-700 dark:text-teal-300 font-sans font-black">
+                          ربط مورد 📦
+                        </span>
+                      )}
+                      {act.milestoneBonusTriggeredPoints > 0 && (
+                        <span className="px-2 py-0.5 rounded bg-amber-500/20 text-[#9A3412] dark:text-[#FBBF24] font-black">
+                          مكافأة +{act.milestoneBonusTriggeredPoints} ن!
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}

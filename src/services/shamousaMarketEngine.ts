@@ -1,6 +1,6 @@
 /**
  * محرك «شموسة» الأوفلاين 100% للأسواق والمتاجر الخاصة:
- * (سوق الشمسية + سوق الموردين + المتاجر الخاصة للفنانين + المتاجر الخاصة للموردين)
+ * (سوق الشمساوية + سوق الموردين + المتاجر الخاصة للفنانين + المتاجر الخاصة للموردين)
  *
  * الضوابط:
  * - أوفلاين بالكامل (صفر استهلاك API / كوتا من الزوار أو العابثين).
@@ -20,6 +20,11 @@ import {
   getActivePublicOffers,
   loadLoyaltyConfig,
 } from './loyaltyWalletsService';
+import {
+  searchChangelogAndSystemFeaturesOffline,
+  searchUserGuideAndGlossaryOffline,
+  tryHandleShamousaPersonality,
+} from './shamousaSharedCore';
 
 export type MarketSurfaceMode =
   | 'alshams_market'
@@ -405,6 +410,20 @@ export function processMarketShamousaMessage(input: {
     );
   }
 
+  // 1.5) طبقة الشخصية، الهوية، المصمم (م. حسام بسيوني)، المجاملات، التحيات، والهزار اللطيف — مخصصة لأسلوب السوق/المتجر!
+  const personalityHit = tryHandleShamousaPersonality(rawQuery, mode, storeName);
+  if (personalityHit) {
+    return attachGuestContextualCta(
+      {
+        text: personalityHit.text,
+        options: buildDefaultMarketOptions(isSupplierSurface),
+      },
+      isAuthenticated,
+      defaultCtaContext,
+      storeName
+    );
+  }
+
   // 2) بدء معالج «هدية سريعة»
   if (/(هديه سريعه|عايز هديه|عاوزه هديه|بدور على هديه|اختارلي هديه|معالج الهديه)/.test(qNorm) && !extractPriceBounds(rawQuery).maxPriceEgp) {
     return attachGuestContextualCta(
@@ -459,6 +478,22 @@ export function processMarketShamousaMessage(input: {
   // 3) مكتبة المشاكل الفنية مفتوحة بالكامل أوفلاين (بدون قفل 3 سطور!)
   const techDiagnosis = checkTechnicalProblemLeadMagnetOffline(rawQuery, isAuthenticated);
   if (techDiagnosis) return techDiagnosis;
+
+  // 3.5) دليل الاستخدام الرسمي وقاموس المصطلحات والمزايا النظامية الصريحة (مع الحفاظ على تركيز السوق على التسوق/الخامات!)
+  const guideHit =
+    searchUserGuideAndGlossaryOffline(rawQuery, mode) ||
+    searchChangelogAndSystemFeaturesOffline(rawQuery, mode);
+  if (guideHit) {
+    return attachGuestContextualCta(
+      {
+        text: guideHit.text,
+        options: buildDefaultMarketOptions(isSupplierSurface),
+      },
+      isAuthenticated,
+      defaultCtaContext,
+      storeName
+    );
+  }
 
   // 4) سؤال عن السعر والمتجر قافل عرض الأسعار (احترام خصوصية المتجر!)
   if (privacy?.hidePrices && /(سعر|بكام|تحت|ارخص|أرخص|ميزانيه|جنيه)/.test(qNorm)) {

@@ -7,6 +7,7 @@ interface DraggableShamosaProps {
   orbitTriggerNonce?: number;
   onOrbitComplete?: () => void;
   isGlowingAlert?: boolean;
+  storageKey?: string;
 }
 
 // Module-level guard so unmounting/remounting DraggableShamosa can NEVER replay an old orbit nonce
@@ -19,11 +20,12 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
   orbitTriggerNonce = 0,
   onOrbitComplete,
   isGlowingAlert = false,
+  storageKey = 'shamousa_fab_pos',
 }) => {
   const [position, setPosition] = useState<{ x: number; y: number }>(() => {
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('shamousa_fab_pos');
+        const saved = localStorage.getItem(storageKey);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number') {
@@ -210,7 +212,7 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
 
     if (hasMovedRef.current) {
       try {
-        localStorage.setItem('shamousa_fab_pos', JSON.stringify(position));
+        localStorage.setItem(storageKey, JSON.stringify(position));
       } catch {}
     } else if (onClick) {
       onClick();

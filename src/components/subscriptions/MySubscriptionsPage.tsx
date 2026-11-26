@@ -1,19 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
+  Award,
   Check,
   CheckCircle2,
   Cloud,
   CloudOff,
   Coins,
+  Copy,
   Crown,
   Gift,
   Layers,
   Lock,
   RefreshCw,
+  Share2,
   ShieldCheck,
   Sparkles,
+  Truck,
   User,
+  Users,
   Wallet,
   X,
 } from 'lucide-react';
@@ -38,6 +43,17 @@ import {
   pointsToEgp,
   syncPublicLoyaltyFromServer,
 } from '../../services/loyaltyWalletsService';
+import {
+  ReferralTrack,
+  buildReferralShareUrl,
+  buildReferralWhatsAppText,
+  calculateMilestoneProgress,
+  ensureReferralProfileLocal,
+  fetchMyReferralProfileFromServer,
+  getReferralTrackLabelAr,
+  getWelcomePointsForTrack,
+} from '../../services/referralSystemService';
+import { supabase } from '../../lib/supabase';
 
 interface MySubscriptionsPageProps {
   profile: UserProfile;
@@ -70,21 +86,82 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
   const [accountWallet, setAccountWallet] = useState(() =>
     getAccountWalletsLocal(profile.workshopId || profile.email || profile.id || 'workshop')
   );
+  const memberTrack: ReferralTrack = isSupplier
+    ? 'supplier'
+    : (profile as any)?.isCertifiedTrainer || (profile as any)?.accountRole === 'trainer'
+    ? 'trainer'
+    : 'artisan';
+  const [referralProfile, setReferralProfile] = useState(() =>
+    ensureReferralProfileLocal({
+      accountId: profile.workshopId || profile.email || profile.id || 'workshop',
+      displayName: profile.brandName || profile.artistName || profile.email || 'عضو الشمساوية',
+      track: memberTrack,
+    })
+  );
+  const [copiedRefCode, setCopiedRefCode] = useState(false);
 
   useEffect(() => {
     const key = profile.workshopId || profile.email || profile.id || 'workshop';
+    const displayName = profile.brandName || profile.artistName || profile.email || 'عضو الشمساوية';
     syncPublicLoyaltyFromServer().then(({ config }) => setLoyaltyCfg(config));
+    supabase.auth.getSession().then(({ data }) => {
+      const token = data?.session?.access_token;
+      fetchMyReferralProfileFromServer(token, {
+        accountId: key,
+        displayName,
+        track: memberTrack,
+      }).then(({ profile: p }) => setReferralProfile(p));
+    });
     const onRefresh = () => {
       setLoyaltyCfg(loadLoyaltyConfig());
       setAccountWallet(getAccountWalletsLocal(key));
+      setReferralProfile(
+        ensureReferralProfileLocal({
+          accountId: key,
+          displayName,
+          track: memberTrack,
+        })
+      );
     };
     window.addEventListener('alshams_loyalty_config_updated', onRefresh);
     window.addEventListener('alshams_loyalty_wallets_updated', onRefresh);
+    window.addEventListener('alshams_referrals_updated', onRefresh);
     return () => {
       window.removeEventListener('alshams_loyalty_config_updated', onRefresh);
       window.removeEventListener('alshams_loyalty_wallets_updated', onRefresh);
+      window.removeEventListener('alshams_referrals_updated', onRefresh);
     };
-  }, [profile.workshopId, profile.email, profile.id]);
+  }, [profile.workshopId, profile.email, profile.id, profile.brandName, profile.artistName, memberTrack]);
+
+  const referralProgress = useMemo(
+    () =>
+      calculateMilestoneProgress(
+        referralProfile.verifiedActivationsCount,
+        referralProfile.milestonesPaidCount
+      ),
+    [referralProfile.verifiedActivationsCount, referralProfile.milestonesPaidCount]
+  );
+
+  const handleCopyReferralLink = async () => {
+    playButtonClickSound();
+    const url = buildReferralShareUrl(referralProfile.code);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedRefCode(true);
+      setTimeout(() => setCopiedRefCode(false), 2500);
+    } catch {}
+  };
+
+  const handleShareReferralWhatsApp = () => {
+    playButtonClickSound();
+    const text = buildReferralWhatsAppText(referralProfile);
+    const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    const link = document.createElement('a');
+    link.href = waUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.click();
+  };
 
   const togglePkg = (id: SubscriptionPackageId) => {
     if (id === 'core_free') return;
@@ -492,6 +569,101 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* Phase 3: Tri-Track Referral Hub & 5-Activation 50-Pt Milestone Card */}
+      <div className="rounded-2xl border-2 border-[#D4CCBC] dark:border-[#243968] bg-white dark:bg-[#0D162E] p-4 sm:p-5 space-y-3.5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Users className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
+              <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                نظام الدعوات الثلاثي ومكافأة الـ 50 نقطة 🤝
+              </h3>
+              <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-[#FFF5E6] dark:bg-[#172647] text-[#C2410C] dark:text-[#FBBF24]">
+                مسارك: {getReferralTrackLabelAr(referralProfile.track)}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+              ادعُ أصحابك بكودك! كل عضو يسجّل بكودك بياخد{' '}
+              <strong className="text-[#0C1427] dark:text-[#F7F3EA]">
+                +{getWelcomePointsForTrack(referralProfile.track)} نقطة ترحيبية
+              </strong>{' '}
+              مموّلة من المنصة، ومع كل <strong className="text-[#EA580C] dark:text-[#FBBF24]">5 تفعيلات حقيقية</strong> بينزلك{' '}
+              <strong className="text-emerald-700 dark:text-emerald-400">+50 نقطة تلقائياً</strong> في محفظة الباقات!
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div
+              className="px-3 py-1.5 rounded-xl bg-[#FAF7F0] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#2B4378] font-mono font-black text-xs text-[#0C1427] dark:text-[#FBBF24] tracking-wider select-all"
+              dir="ltr"
+            >
+              {referralProfile.code}
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyReferralLink}
+              className="px-3 py-1.5 rounded-xl border border-[#D4CCBC] dark:border-[#2B4378] bg-[#F7F3EA] dark:bg-[#132040] hover:border-[#EA580C] text-[11px] font-black text-[#0C1427] dark:text-[#F7F3EA] inline-flex items-center gap-1 cursor-pointer"
+            >
+              {copiedRefCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-[#EA580C]" />}
+              <span>{copiedRefCode ? 'تم النسخ ✓' : 'نسخ الرابط'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleShareReferralWhatsApp}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>مشاركة واتساب</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 5-Activation Progress Bar */}
+        <div className="p-3 rounded-xl bg-[#FAF7F0] dark:bg-[#132040]/70 border border-[#E5DEC9] dark:border-[#1E2E52] space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-black text-[#0C1427] dark:text-[#F7F3EA]">
+              التقدم نحو مكافأة الـ 50 نقطة القادمة:{' '}
+              <span className="font-mono text-[#EA580C] dark:text-[#FBBF24]">
+                {referralProgress.currentInCycle} / {referralProgress.targetPerMilestone}
+              </span>{' '}
+              تفعيلات حقيقية
+            </span>
+            <span className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] font-mono tabular-nums">
+              إجمالي تفعيلاتك: {referralProfile.verifiedActivationsCount} · مكافآت مكتسبة: +{referralProfile.totalBonusPointsEarned} نقطة
+            </span>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-[#E5DEC9] dark:bg-[#0A1124] overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-l from-[#EA580C] to-[#F59E0B] transition-all duration-300"
+              style={{ width: `${Math.max(referralProgress.percentComplete, referralProgress.currentInCycle > 0 ? 15 : 4)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Certified Trainer Badge & Auto-Linked Preferred Suppliers */}
+        {(referralProfile.certifiedTrainerBadge || referralProfile.preferredSuppliers.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {referralProfile.certifiedTrainerBadge && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/15 border border-indigo-500/35 text-indigo-800 dark:text-indigo-200 text-xs font-black">
+                <Award className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-300" />
+                <span>
+                  {referralProfile.certifiedTrainerBadge.labelAr} ({referralProfile.certifiedTrainerBadge.trainerName})
+                </span>
+              </div>
+            )}
+            {referralProfile.preferredSuppliers.map((sup) => (
+              <div
+                key={sup.supplierAccountId}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600/15 border border-emerald-500/35 text-emerald-800 dark:text-emerald-200 text-xs font-black"
+              >
+                <Truck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300" />
+                <span>مورّد مفضّل تلقائياً: {sup.supplierName}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Bottom All-In-One Free Promo Card */}
       <div className="rounded-2xl border-2 border-[#EA580C]/50 border-b-[5px] border-b-[#9A3412] bg-gradient-to-l from-[#EA580C] via-[#C2410C] to-[#9A3412] text-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">

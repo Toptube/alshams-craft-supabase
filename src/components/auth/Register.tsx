@@ -15,7 +15,14 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Gift,
 } from 'lucide-react';
+import {
+  ReferralResolvePreview,
+  normalizeReferralCode,
+  resolveReferralCodeLocal,
+  resolveReferralCodeServer,
+} from '../../services/referralSystemService';
 import { Gender } from '../../types';
 import { MainSectionId } from '../../registry/craftsRegistry';
 import {
@@ -58,6 +65,8 @@ interface RegisterProps {
   setSuppliedMaterials: React.Dispatch<React.SetStateAction<string[]>>;
   skillLevel?: ArtisanSkillLevel;
   onSkillLevelChange?: (level: ArtisanSkillLevel, score?: number) => void;
+  referralCode?: string;
+  setReferralCode?: (code: string) => void;
   loading: boolean;
   errorMsg: string;
   onSubmit: (e: React.FormEvent) => void;
@@ -108,6 +117,8 @@ export const Register: React.FC<RegisterProps> = ({
   setSuppliedMaterials,
   skillLevel = 'intermediate',
   onSkillLevelChange,
+  referralCode = '',
+  setReferralCode,
   loading,
   errorMsg,
   onSubmit,
@@ -128,6 +139,25 @@ export const Register: React.FC<RegisterProps> = ({
   const [termsError, setTermsError] = useState('');
   const [expandedSection, setExpandedSection] = useState<MainSectionId>('ropes_textiles');
   const [customMaterialDrafts, setCustomMaterialDrafts] = useState<Record<string, string>>({});
+  const [referralPreview, setReferralPreview] = useState<ReferralResolvePreview>(() =>
+    resolveReferralCodeLocal(referralCode)
+  );
+
+  React.useEffect(() => {
+    const norm = normalizeReferralCode(referralCode);
+    setReferralPreview(resolveReferralCodeLocal(norm));
+    if (!norm || norm.length < 4) return;
+    let active = true;
+    const t = window.setTimeout(() => {
+      resolveReferralCodeServer(norm).then((p) => {
+        if (active) setReferralPreview(p);
+      });
+    }, 350);
+    return () => {
+      active = false;
+      window.clearTimeout(t);
+    };
+  }, [referralCode]);
 
   const toggleBusinessType = (id: SupplierBusinessType) => {
     setBusinessTypes((prev) =>
@@ -729,6 +759,32 @@ export const Register: React.FC<RegisterProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Optional Tri-Track Referral Code (Artisan / Supplier / Trainer) */}
+        {setReferralCode && (
+          <div className="p-3 rounded-2xl bg-[#FFFDF8] dark:bg-[#132040]/85 border border-[#EA580C]/35 space-y-1.5">
+            <label className="flex items-center justify-between text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+              <span className="inline-flex items-center gap-1.5">
+                <Gift className="w-3.5 h-3.5 text-[#EA580C]" />
+                <span>كود دعوة (اختياري — فنان / مورّد / مدرب)</span>
+              </span>
+              <span className="font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
+                +{referralPreview.welcomePoints} نقطة ترحيبية
+              </span>
+            </label>
+            <input
+              type="text"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              placeholder="ART-XXXXXX / SUP-XXXXXX / TRN-XXXXXX"
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-[#243968] bg-stone-50 dark:bg-[#0A1124] text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-amber-500"
+              dir="ltr"
+            />
+            <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] leading-snug">
+              {referralPreview.messageAr}
+            </p>
+          </div>
+        )}
 
         {/* Mandatory Terms & AI Policy Checkbox */}
         <div className="p-3 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">

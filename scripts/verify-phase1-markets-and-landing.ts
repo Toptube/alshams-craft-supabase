@@ -229,15 +229,140 @@ const landingTech = processLandingShamousaMessage({ rawQuery: 'الريزن عن
 assert.equal(landingTech.isLeadMagnetLocked, false, 'Landing page technical answer must be fully unlocked offline');
 assert.ok(landingTech.text.includes('سجّل دلوقتي'), 'Landing page technical answer must include contextual register CTA');
 
-// Out-of-scope visitor suggestion flow
+// Out-of-scope honesty (ZERO hallucination + NO auto-trapping next question in awaitingVisitorSuggestionFor!)
 const outOfScope = processLandingShamousaMessage({ rawQuery: 'هل عندكم حجز تذاكر طيران دولية وفنادق؟' });
-assert.ok(outOfScope.awaitingVisitorSuggestionFor, 'Out-of-scope question should prompt for visitor suggestion');
+assert.equal(outOfScope.awaitingVisitorSuggestionFor, undefined, 'Out-of-scope MUST NOT auto-trap next question as a suggestion');
+assert.ok(outOfScope.options.some((o) => o.action === 'not_what_i_meant'), 'Out-of-scope must offer explicit clickable suggestion button');
 assert.ok(outOfScope.options.some((o) => o.action === 'navigate'), 'Out-of-scope reply should still provide gentle register CTA');
-const captured = processLandingShamousaMessage({
+
+const cheeseQuery = processLandingShamousaMessage({ rawQuery: 'بتبيعوا لب وسوداني وجبنة؟' });
+assert.equal(cheeseQuery.awaitingVisitorSuggestionFor, undefined);
+assert.ok(cheeseQuery.text.includes('خارج تخصص'), 'Unrelated grocery question MUST honestly say it is outside specialization');
+assert.ok(!cheeseQuery.filterToApply, 'Must not fabricate a fake section filter for unrelated items');
+
+const capturedExplicit = processLandingShamousaMessage({
   rawQuery: 'أقترح إضافة شحن دولي مباشر لدول الخليج من داخل المنصة',
-  awaitingSuggestionFor: outOfScope.awaitingVisitorSuggestionFor,
 });
-assert.ok(captured.capturedSuggestionText, 'Should capture visitor suggestion for Super Admin inbox');
-console.log('✅ 6. Landing Page Interactive Offline Shamousa (Role/Level Filter, Typo Q&A, Unlocked Tech Help, Contextual CTA, Admin Suggestions) verified');
+assert.ok(capturedExplicit.capturedSuggestionText, 'Explicit suggestion phrasing should capture visitor suggestion for Super Admin inbox');
+
+// 7. Regression tests for Eng. Hossam's exact Landing Page queries!
+const qCosting = processLandingShamousaMessage({ rawQuery: 'أنتم عندكم تكاليف؟' });
+assert.equal(qCosting.capturedSuggestionText, undefined, 'Costing query MUST NEVER be captured as suggestion');
+assert.ok(qCosting.text.includes('حاسبة التكاليف') && qCosting.text.includes('55'), 'Must clearly explain Costing Calculator & workshops');
+
+const qMarketing = processLandingShamousaMessage({ rawQuery: 'طب أنت تقدري تساعديني على التسويق؟' });
+assert.equal(qMarketing.capturedSuggestionText, undefined);
+assert.ok(qMarketing.text.includes('التسويق') && qMarketing.text.includes('35'), 'Must clearly explain Marketing Engine & 35 specialties');
+
+const qMarkets = processLandingShamousaMessage({ rawQuery: 'طب أنا سمعت أن عندكم أسواق' });
+assert.equal(qMarkets.capturedSuggestionText, undefined);
+assert.ok(qMarkets.text.includes('سوق الشمساوية') && qMarkets.text.includes('سوق الموردين'), 'Must mention سوق الشمساوية & سوق الموردين');
+assert.ok(!qMarkets.text.includes('سوق الشمسية'), 'Must NEVER use old misspelled name سوق الشمسية');
+
+const qMulti = processLandingShamousaMessage({ rawQuery: 'عندكم تكاليف وتسويق؟' });
+assert.ok(
+  (qMulti.text.includes('التكاليف') || qMulti.text.includes('تسعير')) && qMulti.text.includes('التسويق'),
+  'Multi-topic query should synthesize BOTH costing and marketing'
+);
+
+const qCraft = processLandingShamousaMessage({ rawQuery: 'عندكم شغل مكرمية؟' });
+assert.ok(qCraft.text.includes('مكرمية'), 'Should recognize Macrame craft directly');
+
+console.log('✅ 6 & 7. Landing Page Shamousa Encyclopedia (Costing, Marketing, سوق الشمساوية, Multi-Topic, 35 Crafts, Honest Anti-Hallucination) verified 100%!');
+
+// 8. Screenshot Regression Fixes: Concept-Pair Creator Detection, Classy Tone (NO يجبر بخاطرك), Anti-Hijack Suggestion Guard, 65+ Crafts & Full System Features
+const qCreatorScreenshot1 = processLandingShamousaMessage({ rawQuery: 'مين صمم الشغل ده' });
+assert.ok(
+  qCreatorScreenshot1.text.includes('حسام بسيوني') &&
+    qCreatorScreenshot1.text.includes('الشمس كرافت') &&
+    qCreatorScreenshot1.text.includes('تايجوس'),
+  'Screenshot 1 fix: "مين صمم الشغل ده" MUST credit Eng. Hossam Bassiouny, Al-Shams Craft & Tygos'
+);
+
+// Even if awaitingSuggestionFor is armed, asking a real question MUST NEVER be swallowed as a suggestion!
+const qCreatorScreenshot2 = processLandingShamousaMessage({
+  rawQuery: 'مين المهندس اللي عمل المنظومه',
+  awaitingSuggestionFor: 'سؤال سابق',
+});
+assert.equal(qCreatorScreenshot2.capturedSuggestionText, undefined, 'Screenshot 2 fix: MUST NOT swallow question as a suggestion!');
+assert.ok(
+  qCreatorScreenshot2.text.includes('حسام بسيوني') && qCreatorScreenshot2.text.includes('تايجوس'),
+  'Screenshot 2 fix: "مين المهندس اللي عمل المنظومه" MUST answer with Eng. Hossam Bassiouny & Tygos'
+);
+
+const qCreatorCombined = processLandingShamousaMessage({ rawQuery: 'انتي هايله مين اللي صممك' });
+assert.ok(qCreatorCombined.text.includes('حسام بسيوني') && qCreatorCombined.text.includes('ذوق'));
+assert.ok(!qCreatorCombined.text.includes('يجبر بخاطرك'), 'MUST NEVER contain banned local phrase');
+
+const qOrigin = processLandingShamousaMessage({ rawQuery: 'أنتِ منين وتبع مين؟' });
+assert.ok(qOrigin.text.includes('الشمس كرافت') && qOrigin.text.includes('تايجوس') && qOrigin.text.includes('حسام بسيوني'));
+
+const qNotShamsawy = processLandingShamousaMessage({ rawQuery: 'أنا مش شمساوية' });
+assert.ok(qNotShamsawy.text.includes('البيت بيتك') && qNotShamsawy.text.includes('الشمساوية'));
+
+// Classy tone check (Screenshot 3 fix: NO يجبر بخاطرك!)
+for (const praise of ['تحفه بجد', 'تسلمي', 'ما شاء الله انتي جميلة قوي']) {
+  const res = processLandingShamousaMessage({ rawQuery: praise });
+  assert.ok(!res.text.includes('يجبر بخاطرك'), `"${praise}" MUST NOT use banned phrase يجبر بخاطرك`);
+  assert.ok(
+    res.text.includes('ذوق') || res.text.includes('أعتز') || res.text.includes('يسعدني') || res.text.includes('واجبي'),
+    `"${praise}" must reply with classy confident Egyptian warmth`
+  );
+}
+
+const qBanterLanding = processLandingShamousaMessage({ rawQuery: 'عندك مايوه؟' });
+assert.ok(qBanterLanding.text.includes('ههههه'), 'Playful banter should get warm witty Egyptian reply');
+
+const qWhatHaveLanding = processLandingShamousaMessage({ rawQuery: 'عندك إيه؟' });
+assert.ok(qWhatHaveLanding.text.includes('65+') && qWhatHaveLanding.text.includes('سوق الشمساوية'));
+
+// Full 65+ Crafts Registry & All System Features from Day 1 until today
+const qJesmonite = processLandingShamousaMessage({ rawQuery: 'عندكم جيسمونايت؟' });
+assert.ok(qJesmonite.text.includes('جيسمونايت') || qJesmonite.text.includes('Jesmonite'), 'Must recognize Jesmonite from craftsRegistry');
+
+const q3D = processLandingShamousaMessage({ rawQuery: 'عندكم طباعة ثلاثية الأبعاد؟' });
+assert.ok(q3D.text.includes('3D') || q3D.text.includes('ثلاثية الأبعاد'), 'Must recognize 3D Printing from craftsRegistry');
+
+const qAllCrafts = processLandingShamousaMessage({ rawQuery: 'إيه هي كل الحرف المدعومة؟' });
+assert.ok(qAllCrafts.text.includes('14 قسماً'), 'Must list all 14 craft main sections');
+
+const qFixedAssets = processLandingShamousaMessage({ rawQuery: 'عندكم أصول ثابتة وإهلاك معدات؟' });
+assert.ok(qFixedAssets.text.includes('الأصول الثابتة') && qFixedAssets.text.includes('الإهلاك'));
+
+const qBackup = processLandingShamousaMessage({ rawQuery: 'فيه نسخ احتياطي JSON؟' });
+assert.ok(qBackup.text.includes('JSON Export'));
+
+const qPrintA4 = processLandingShamousaMessage({ rawQuery: 'فيه طباعة A4 وتصدير PDF؟' });
+assert.ok(qPrintA4.text.includes('A4') && qPrintA4.text.includes('PDF'));
+
+const qChangelog = processLandingShamousaMessage({ rawQuery: 'إيه آخر تحديثات المنظومة؟' });
+assert.ok(qChangelog.text.includes('4.1.0') && qChangelog.text.includes('سوق الشمساوية'));
+
+const qGlossary = processLandingShamousaMessage({ rawQuery: 'يعني إيه متوسط التكلفة المرجح؟' });
+assert.ok(qGlossary.text.includes('Weighted Average Cost') || qGlossary.text.includes('متوسط'));
+
+const qGuide = processLandingShamousaMessage({ rawQuery: 'إيه شاشة هلخصهالك؟' });
+assert.ok(qGuide.text.includes('هلخصهالك') && qGuide.text.includes('واتساب'));
+
+const qGuidePos = processLandingShamousaMessage({ rawQuery: 'إزاي أطبع ريسيت 80 مم؟' });
+assert.ok(qGuidePos.text.includes('80 مم') || qGuidePos.text.includes('POS'));
+
+// Strict Surface Separation check: Market Shamousa answers creator concisely & pivots to سوق الشمساوية (no ERP dump!)
+const qCreatorMarket = processMarketShamousaMessage({
+  rawQuery: 'مين صمم الشغل ده',
+  mode: 'alshams_market',
+  catalog: sampleCatalog,
+  isAuthenticated: false,
+});
+assert.ok(
+  qCreatorMarket.text.includes('حسام بسيوني') &&
+    qCreatorMarket.text.includes('الشمس كرافت') &&
+    qCreatorMarket.text.includes('تايجوس'),
+  'Market Shamousa must know full creator lineage'
+);
+assert.ok(qCreatorMarket.text.includes('سوق الشمساوية'), 'Market Shamousa must pivot back cleanly to سوق الشمساوية');
+assert.ok(!qCreatorMarket.text.includes('العقول التحليلية الثلاثة'), 'Market Shamousa must stay concise & shopper-focused (separated from Landing!)');
+
+console.log('✅ 8. Concept-Pair Creator Lore, Classy Tone, Anti-Hijack Suggestion Guard, 65+ Crafts Registry, All System Features & Strict Surface Separation verified 100%!');
 
 console.log('\n🎉 ALL PHASE 1 + LANDING PAGE SHAMOUSA CHECKS PASSED 100%!');

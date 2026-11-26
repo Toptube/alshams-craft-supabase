@@ -4,9 +4,11 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/common/ErrorBoundary.tsx';
 import { SuperAdminUiCustomizer } from './components/admin/SuperAdminUiCustomizer.tsx';
 import { initGlobalButtonFeedback } from './lib/sounds';
+import { capturePendingReferralCodeFromUrl } from './services/referralSystemService';
 import './index.css';
 
 initGlobalButtonFeedback();
+capturePendingReferralCodeFromUrl();
 
 // Silent background PWA auto-update (no manual reinstall needed on deploys)
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {

@@ -5762,6 +5762,494 @@ app.post('/api/admin/loyalty/grant', requireAuth, async (req: AuthenticatedReque
 });
 
 // -------------------------------------------------------------
+// Phase 3: Tri-Track Referral System (Artisan / Supplier / Trainer)
+// - Tiered Platform-Funded Welcome Points: Direct 10 | Artisan/Supplier 15 | Trainer 25 + Badge
+// - Auto +50 pts to Referrer's packages_wallet every 5 verified activations
+// - Auto-link Supplier into invitee's preferredSuppliers («مورديني المفضلين»)
+// -------------------------------------------------------------
+const REF_SERVER_MILESTONE_TARGET = 5;
+const REF_SERVER_MILESTONE_BONUS = 50;
+const REF_SERVER_WELCOME_MAP: Record<string, number> = {
+  direct: 10,
+  artisan: 15,
+  supplier: 15,
+  trainer: 25,
+};
+const publicReferralResolveHits = new Map<string, { count: number; resetAt: number }>();
+
+function serverNormalizeRefCode(raw: any): string {
+  return String(raw || '').trim().toUpperCase().replace(/\s+/g, '').slice(0, 24);
+}
+
+function serverGenerateRefCode(accountId: string, track: 'artisan' | 'supplier' | 'trainer'): string {
+  const prefix = track === 'trainer' ? 'TRN' : track === 'supplier' ? 'SUP' : 'ART';
+  const clean = String(accountId || 'member').trim().toLowerCase();
+  let hash = 2166136261;
+  for (let i = 0; i < clean.length; i++) {
+    hash ^= clean.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let body = '';
+  let val = (hash >>> 0) || 135791;
+  for (let i = 0; i < 6; i++) {
+    body += alphabet[val % alphabet.length];
+    val = Math.abs(Math.floor(val / alphabet.length) ^ ((hash >>> (i * 3)) + 31 * (i + 1)));
+  }
+  return `${prefix}-${body}`;
+}
+
+function serverGetReferralTrackLabel(track: string): string {
+  if (track === 'trainer') return 'مدرب معتمد 🎓';
+  if (track === 'supplier') return 'مورّد خامات 📦';
+  return 'فنان / ورشة 🎨';
+}
+
+function ensureServerReferralStore(store: any) {
+  const ref = store.referralSystem && typeof store.referralSystem === 'object' ? store.referralSystem : {};
+  const profilesByAccount =
+    ref.profilesByAccount && typeof ref.profilesByAccount === 'object' ? { ...ref.profilesByAccount } : {};
+  const codeToAccount =
+    ref.codeToAccount && typeof ref.codeToAccount === 'object' ? { ...ref.codeToAccount } : {};
+  const activations = Array.isArray(ref.activations) ? [...ref.activations] : [];
+  return { profilesByAccount, codeToAccount, activations };
+}
+
+function ensureServerReferralProfile(
+  refStore: { profilesByAccount: Record<string, any>; codeToAccount: Record<string, string> },
+  accountId: string,
+  displayName: string,
+  track: 'artisan' | 'supplier' | 'trainer'
+) {
+  const key = accountId.trim().toLowerCase();
+  const existing = refStore.profilesByAccount[key];
+  if (existing) {
+    if (displayName && existing.displayName !== displayName) {
+      existing.displayName = displayName;
+      existing.updatedAt = new Date().toISOString();
+    }
+    return existing;
+  }
+  let code = serverGenerateRefCode(key, track);
+  let suffix = 1;
+  while (refStore.codeToAccount[code] && refStore.codeToAccount[code] !== key) {
+    code = serverGenerateRefCode(`${key}_${suffix}`, track);
+    suffix++;
+  }
+  const now = new Date().toISOString();
+  const created = {
+    accountId: key,
+    displayName: displayName || 'عضو الشمساوية',
+    track,
+    code,
+    verifiedActivationsCount: 0,
+    milestonesPaidCount: 0,
+    totalBonusPointsEarned: 0,
+    certifiedTrainerBadge: null,
+    preferredSuppliers: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  refStore.profilesByAccount[key] = created;
+  refStore.codeToAccount[code] = key;
+  return created;
+}
+
+function creditServerLoyaltyWallet(
+  store: any,
+  accountId: string,
+  walletType: 'packages_wallet' | 'shopping_wallet',
+  points: number,
+  reasonAr: string
+) {
+  const loyalty = store.loyaltyEconomy || {};
+  const config = sanitizeServerLoyaltyConfig(loyalty.config);
+  const wallets =
+    loyalty.walletsByAccount && typeof loyalty.walletsByAccount === 'object'
+      ? { ...loyalty.walletsByAccount }
+      : {};
+  const key = accountId.trim().toLowerCase();
+  const current = wallets[key] || {
+    accountId: key,
+    packagesWalletPoints: 0,
+    shoppingWalletPoints: 0,
+    ledger: [],
+    updatedAt: new Date().toISOString(),
+  };
+  const tx = {
+    id: `ltx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    walletType,
+    type: 'credit',
+    points,
+    egpEquivalent: Math.round(points * config.pointValueEgp * 100) / 100,
+    reasonAr,
+    fundedBy: 'platform',
+    createdAt: new Date().toISOString(),
+  };
+  const updated = {
+    ...current,
+    packagesWalletPoints:
+      walletType === 'packages_wallet'
+        ? (current.packagesWalletPoints || 0) + points
+        : current.packagesWalletPoints || 0,
+    shoppingWalletPoints:
+      walletType === 'shopping_wallet'
+        ? (current.shoppingWalletPoints || 0) + points
+        : current.shoppingWalletPoints || 0,
+    ledger: [tx, ...(Array.isArray(current.ledger) ? current.ledger : [])].slice(0, 120),
+    updatedAt: new Date().toISOString(),
+  };
+  wallets[key] = updated;
+  store.loyaltyEconomy = { ...loyalty, config, walletsByAccount: wallets };
+  return updated;
+}
+
+app.get('/api/referrals/my', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const accountId = String(req.workshopId || req.userEmail || req.user?.id || '').trim().toLowerCase();
+    if (!accountId) {
+      res.status(400).json({ error: 'تعذر تحديد معرّف الحساب' });
+      return;
+    }
+    const rawTrack = String(req.query?.track || 'artisan');
+    const track: 'artisan' | 'supplier' | 'trainer' =
+      rawTrack === 'supplier' ? 'supplier' : rawTrack === 'trainer' ? 'trainer' : 'artisan';
+    const displayName = String(req.query?.displayName || req.userEmail || 'عضو الشمساوية').trim().slice(0, 100);
+
+    const store = await readDurableKnowledgeStore();
+    const refStore = ensureServerReferralStore(store);
+    const existed = Boolean(refStore.profilesByAccount[accountId]);
+    const profile = ensureServerReferralProfile(refStore, accountId, displayName, track);
+
+    if (!existed) {
+      (store as any).referralSystem = refStore;
+      await writeDurableKnowledgeStore(store, req.scopedSupabase);
+    }
+
+    const recentReferred = refStore.activations
+      .filter((a: any) => a.referrerAccountId === accountId)
+      .slice(0, 20);
+
+    res.json({ ok: true, profile, recentReferred });
+  } catch (err: any) {
+    console.warn('[Referrals My Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر تحميل بيانات الدعوات' });
+  }
+});
+
+app.post('/api/public/referrals/resolve', async (req: Request, res: Response) => {
+  try {
+    const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
+    const now = Date.now();
+    const hit = publicReferralResolveHits.get(ip);
+    if (hit && hit.resetAt > now && hit.count >= 40) {
+      res.status(429).json({ ok: false, error: 'محاولات كثيرة، يرجى الانتظار دقيقة.' });
+      return;
+    }
+    publicReferralResolveHits.set(ip, {
+      count: hit && hit.resetAt > now ? hit.count + 1 : 1,
+      resetAt: hit && hit.resetAt > now ? hit.resetAt : now + 60_000,
+    });
+
+    const code = serverNormalizeRefCode(req.body?.code);
+    if (!code) {
+      res.json({
+        ok: true,
+        preview: {
+          valid: false,
+          code: '',
+          welcomePoints: REF_SERVER_WELCOME_MAP.direct,
+          grantsTrainerBadge: false,
+          autoLinksSupplier: false,
+          messageAr: `التسجيل المباشر يمنحك ${REF_SERVER_WELCOME_MAP.direct} نقاط ترحيبية مموّلة من المنصة.`,
+        },
+      });
+      return;
+    }
+
+    const store = await readDurableKnowledgeStore();
+    const refStore = ensureServerReferralStore(store);
+    const ownerKey = refStore.codeToAccount[code];
+    const owner = ownerKey ? refStore.profilesByAccount[ownerKey] : null;
+    if (!owner) {
+      res.json({
+        ok: true,
+        preview: {
+          valid: false,
+          code,
+          welcomePoints: REF_SERVER_WELCOME_MAP.direct,
+          grantsTrainerBadge: false,
+          autoLinksSupplier: false,
+          messageAr: 'كود الدعوة غير معروف. تأكد من الكود أو اتركه فارغاً للتسجيل المباشر.',
+        },
+      });
+      return;
+    }
+
+    const pts = REF_SERVER_WELCOME_MAP[owner.track] || REF_SERVER_WELCOME_MAP.direct;
+    res.json({
+      ok: true,
+      preview: {
+        valid: true,
+        code,
+        track: owner.track,
+        trackLabelAr: serverGetReferralTrackLabel(owner.track),
+        referrerName: owner.displayName,
+        welcomePoints: pts,
+        grantsTrainerBadge: owner.track === 'trainer',
+        autoLinksSupplier: owner.track === 'supplier',
+        messageAr:
+          owner.track === 'trainer'
+            ? `كود مدرب معتمد (${owner.displayName}) — هتاخد ${pts} نقطة ترحيبية + شارة «تحت إشراف مدرب معتمد 🎓»!`
+            : owner.track === 'supplier'
+            ? `كود مورّد (${owner.displayName}) — هتاخد ${pts} نقطة ترحيبية وهينزل تلقائياً في «مورديني المفضلين 📦»!`
+            : `كود فنان/ورشة (${owner.displayName}) — هتاخد ${pts} نقطة ترحيبية مموّلة من المنصة!`,
+      },
+    });
+  } catch (err: any) {
+    console.warn('[Public Referral Resolve Error]:', err?.message);
+    res.status(500).json({ ok: false, error: 'تعذر التحقق من كود الدعوة' });
+  }
+});
+
+app.post('/api/referrals/claim', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const inviteeKey = String(req.workshopId || req.userEmail || req.user?.id || '').trim().toLowerCase();
+    if (!inviteeKey) {
+      res.status(400).json({ ok: false, error: 'تعذر تحديد معرّف الحساب' });
+      return;
+    }
+
+    const rawTrack = String(req.body?.inviteeTrack || 'artisan');
+    const inviteeTrack: 'artisan' | 'supplier' | 'trainer' =
+      rawTrack === 'supplier' ? 'supplier' : rawTrack === 'trainer' ? 'trainer' : 'artisan';
+    const inviteeWalletType: 'packages_wallet' | 'shopping_wallet' =
+      req.body?.inviteeWalletType === 'shopping_wallet' ? 'shopping_wallet' : 'packages_wallet';
+    const inviteeName = String(req.body?.inviteeName || req.userEmail || 'عضو جديد').trim().slice(0, 100);
+    const code = serverNormalizeRefCode(req.body?.referralCode);
+
+    const store = await readDurableKnowledgeStore();
+    const refStore = ensureServerReferralStore(store);
+    const invitee = ensureServerReferralProfile(refStore, inviteeKey, inviteeName, inviteeTrack);
+
+    // منع التكرار (Idempotent)
+    if (typeof invitee.welcomePointsClaimed === 'number' && invitee.welcomePointsClaimed > 0) {
+      res.status(409).json({
+        ok: false,
+        error: 'تم صرف النقاط الترحيبية أو تسجيل كود الدعوة لهذا الحساب مسبقاً.',
+        inviteeProfile: invitee,
+      });
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    if (!code) {
+      const directPts = REF_SERVER_WELCOME_MAP.direct;
+      creditServerLoyaltyWallet(
+        store,
+        inviteeKey,
+        inviteeWalletType,
+        directPts,
+        'نقاط ترحيبية (تسجيل مباشر — مموّلة من المنصة)'
+      );
+      invitee.welcomePointsClaimed = directPts;
+      invitee.updatedAt = now;
+      refStore.profilesByAccount[inviteeKey] = invitee;
+      (store as any).referralSystem = refStore;
+      await writeDurableKnowledgeStore(store, req.scopedSupabase);
+      res.json({
+        ok: true,
+        welcomePointsGranted: directPts,
+        inviteeWalletType,
+        referrerMilestoneBonusGranted: 0,
+        inviteeProfile: invitee,
+      });
+      return;
+    }
+
+    const referrerKey = refStore.codeToAccount[code];
+    const referrer = referrerKey ? refStore.profilesByAccount[referrerKey] : null;
+    if (!referrer) {
+      res.status(404).json({ ok: false, error: 'كود الدعوة غير موجود.' });
+      return;
+    }
+
+    // منع الدعوة الذاتية
+    if (referrer.accountId === inviteeKey) {
+      res.status(400).json({ ok: false, error: 'لا يمكنك استخدام كود الدعوة الخاص بك.' });
+      return;
+    }
+
+    const welcomePts = REF_SERVER_WELCOME_MAP[referrer.track] || REF_SERVER_WELCOME_MAP.direct;
+    creditServerLoyaltyWallet(
+      store,
+      inviteeKey,
+      inviteeWalletType,
+      welcomePts,
+      referrer.track === 'trainer'
+        ? `نقاط ترحيبية بدعوة مدرب معتمد (${referrer.displayName}) — مموّلة من المنصة`
+        : referrer.track === 'supplier'
+        ? `نقاط ترحيبية بدعوة مورّد (${referrer.displayName}) — مموّلة من المنصة`
+        : `نقاط ترحيبية بدعوة فنان (${referrer.displayName}) — مموّلة من المنصة`
+    );
+
+    let trainerBadge = invitee.certifiedTrainerBadge || null;
+    if (referrer.track === 'trainer') {
+      trainerBadge = {
+        trainerAccountId: referrer.accountId,
+        trainerName: referrer.displayName,
+        trainerCode: referrer.code,
+        labelAr: 'تحت إشراف مدرب معتمد 🎓',
+        grantedAt: now,
+      };
+    }
+
+    let linkedSupplier: any = null;
+    const preferredSuppliers = Array.isArray(invitee.preferredSuppliers) ? [...invitee.preferredSuppliers] : [];
+    if (referrer.track === 'supplier') {
+      linkedSupplier = {
+        supplierAccountId: referrer.accountId,
+        supplierName: referrer.displayName,
+        supplierCode: referrer.code,
+        linkedAt: now,
+        source: 'referral_auto_link',
+      };
+      if (!preferredSuppliers.some((s: any) => s.supplierAccountId === referrer.accountId)) {
+        preferredSuppliers.unshift(linkedSupplier);
+      }
+    }
+
+    const updatedInvitee = {
+      ...invitee,
+      referredByCode: referrer.code,
+      referredByTrack: referrer.track,
+      referredByName: referrer.displayName,
+      welcomePointsClaimed: welcomePts,
+      certifiedTrainerBadge: trainerBadge,
+      preferredSuppliers,
+      updatedAt: now,
+    };
+
+    const nextCount = (Number(referrer.verifiedActivationsCount) || 0) + 1;
+    const paidBefore = Number(referrer.milestonesPaidCount) || 0;
+    const totalMilestones = Math.floor(nextCount / REF_SERVER_MILESTONE_TARGET);
+    const newMilestones = Math.max(0, totalMilestones - paidBefore);
+    let milestoneBonus = 0;
+
+    if (newMilestones > 0) {
+      milestoneBonus = newMilestones * REF_SERVER_MILESTONE_BONUS;
+      creditServerLoyaltyWallet(
+        store,
+        referrer.accountId,
+        'packages_wallet',
+        milestoneBonus,
+        `مكافأة إنجاز ${nextCount} تفعيلات حقيقية (نظام الدعوات الثلاثي — محفظة الباقات)`
+      );
+    }
+
+    const updatedReferrer = {
+      ...referrer,
+      verifiedActivationsCount: nextCount,
+      milestonesPaidCount: paidBefore + newMilestones,
+      totalBonusPointsEarned: (Number(referrer.totalBonusPointsEarned) || 0) + milestoneBonus,
+      updatedAt: now,
+    };
+
+    const record = {
+      id: `refact_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      referrerAccountId: referrer.accountId,
+      referrerName: referrer.displayName,
+      referrerCode: referrer.code,
+      track: referrer.track,
+      inviteeAccountId: inviteeKey,
+      inviteeName: updatedInvitee.displayName,
+      inviteeWalletType,
+      welcomePointsGranted: welcomePts,
+      trainerBadgeGranted: referrer.track === 'trainer',
+      supplierAutoLinked: referrer.track === 'supplier',
+      milestoneBonusTriggeredPoints: milestoneBonus,
+      activatedAt: now,
+    };
+
+    refStore.profilesByAccount[inviteeKey] = updatedInvitee;
+    refStore.profilesByAccount[referrer.accountId] = updatedReferrer;
+    refStore.activations = [record, ...refStore.activations].slice(0, 500);
+    (store as any).referralSystem = refStore;
+
+    await writeDurableKnowledgeStore(store, req.scopedSupabase);
+    res.json({
+      ok: true,
+      welcomePointsGranted: welcomePts,
+      inviteeWalletType,
+      trainerBadge,
+      linkedSupplier,
+      referrerMilestoneBonusGranted: milestoneBonus,
+      inviteeProfile: updatedInvitee,
+      referrerProfile: updatedReferrer,
+    });
+  } catch (err: any) {
+    console.warn('[Referrals Claim Error]:', err?.message);
+    res.status(500).json({ ok: false, error: 'تعذر تفعيل كود الدعوة' });
+  }
+});
+
+app.get('/api/admin/referrals/overview', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'لوحة متابعة نظام الدعوات الثلاثي متاحة للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const store = await readDurableKnowledgeStore();
+    const refStore = ensureServerReferralStore(store);
+    const profiles = Object.values(refStore.profilesByAccount) as any[];
+    const byTrack: Record<string, { profiles: number; activations: number }> = {
+      artisan: { profiles: 0, activations: 0 },
+      supplier: { profiles: 0, activations: 0 },
+      trainer: { profiles: 0, activations: 0 },
+    };
+    let totalMilestoneBonusesPaidCount = 0;
+    let totalMilestoneBonusPoints = 0;
+
+    for (const p of profiles) {
+      if (byTrack[p.track]) {
+        byTrack[p.track].profiles += 1;
+        byTrack[p.track].activations += Number(p.verifiedActivationsCount) || 0;
+      }
+      totalMilestoneBonusesPaidCount += Number(p.milestonesPaidCount) || 0;
+      totalMilestoneBonusPoints += Number(p.totalBonusPointsEarned) || 0;
+    }
+
+    const totalWelcomePointsGranted = refStore.activations.reduce(
+      (sum: number, a: any) => sum + (Number(a.welcomePointsGranted) || 0),
+      0
+    );
+
+    const topReferrers = [...profiles]
+      .sort((a, b) => (Number(b.verifiedActivationsCount) || 0) - (Number(a.verifiedActivationsCount) || 0))
+      .slice(0, 20);
+
+    res.json({
+      ok: true,
+      overview: {
+        totalProfiles: profiles.length,
+        totalActivations: refStore.activations.length,
+        byTrack,
+        totalWelcomePointsGranted,
+        totalMilestoneBonusesPaidCount,
+        totalMilestoneBonusPoints,
+        topReferrers,
+        recentActivations: refStore.activations.slice(0, 40),
+      },
+    });
+  } catch (err: any) {
+    console.warn('[Admin Referrals Overview Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر تحميل تقارير نظام الدعوات' });
+  }
+});
+
+// -------------------------------------------------------------
 // Falcon AI Agent Endpoints (General Crafts, Vision, Pricing)
 // -------------------------------------------------------------
 const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {

@@ -19,6 +19,13 @@ import { Register } from './Register';
 import { ArtisanSkillLevel } from '../../types/artisanGrowth';
 import { saveMemberPersonalProfile } from '../../db/memberProfileService';
 import {
+  capturePendingReferralCodeFromUrl,
+  claimReferralCodeServer,
+  getPendingReferralCode,
+  normalizeReferralCode,
+  setPendingReferralCode,
+} from '../../services/referralSystemService';
+import {
   Mail,
   CheckCircle2,
   AlertCircle,
@@ -92,6 +99,9 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
       return false;
     }
   });
+  const [referralCode, setReferralCode] = useState<string>(
+    () => capturePendingReferralCodeFromUrl() || getPendingReferralCode() || ''
+  );
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -232,12 +242,20 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         };
 
         if (activeSession && activeSession.access_token) {
+          const cleanRefCode = normalizeReferralCode(referralCode);
           if (effectiveRole === 'supplier') {
             const regRes = await registerSupplierAccount(supplierPayload);
             if (!regRes.success || !regRes.profile) {
               setErrorMsg(regRes.error || 'تعذر تسجيل حساب المورد.');
               return;
             }
+            claimReferralCodeServer(activeSession.access_token, {
+              inviteeAccountId: regRes.profile.workshopId || regRes.profile.email || cleanEmail,
+              inviteeName: brandName.trim() || artistName.trim(),
+              inviteeTrack: 'supplier',
+              inviteeWalletType: 'packages_wallet',
+              referralCode: cleanRefCode || undefined,
+            }).catch(() => {});
             try {
               localStorage.removeItem(PENDING_SUPPLIER_REG_KEY);
             } catch {}
@@ -264,6 +282,13 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
               skillLevel,
               assessmentScore,
             }).catch(() => {});
+            claimReferralCodeServer(activeSession.access_token, {
+              inviteeAccountId: workshop.workshopId || workshop.email || cleanEmail,
+              inviteeName: brandName.trim() || artistName.trim(),
+              inviteeTrack: skillLevel === 'expert_trainer' ? 'trainer' : 'artisan',
+              inviteeWalletType: 'packages_wallet',
+              referralCode: cleanRefCode || undefined,
+            }).catch(() => {});
             try {
               localStorage.removeItem('alshams_pending_skill_level');
               localStorage.removeItem('alshams_pending_skill_score');
@@ -271,6 +296,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             onAuthenticated(workshop);
           }
           return;
+        }
+
+        if (normalizeReferralCode(referralCode)) {
+          setPendingReferralCode(referralCode);
         }
 
         if (effectiveRole === 'supplier') {
@@ -770,6 +799,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
               setSkillLevel(lvl);
               if (typeof score === 'number') setAssessmentScore(score);
             }}
+            referralCode={referralCode}
+            setReferralCode={setReferralCode}
             loading={loading}
             errorMsg={errorMsg}
             onSubmit={handleEmailAuth}

@@ -3,7 +3,6 @@ import {
   RotateCcw,
   Send,
   Sparkles,
-  Sun,
   X,
 } from 'lucide-react';
 import {
@@ -19,6 +18,8 @@ import {
   saveLandingVisitorSuggestionLocal,
 } from '../../services/shamousaLandingEngine';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
+import { DraggableShamosa } from '../ai/DraggableShamosa';
+import { ShamousaMascotAvatar, ShamousaMascotFull } from '../brand/BrandAssets';
 
 interface LandingChatMessage {
   id: string;
@@ -58,6 +59,7 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showGreetingBubble, setShowGreetingBubble] = useState(true);
+  const [orbitNonce, setOrbitNonce] = useState(0);
   const [visitorRole, setVisitorRole] = useState<LandingVisitorRole | undefined>(undefined);
   const [awaitingSuggestionFor, setAwaitingSuggestionFor] = useState<string | null>(null);
   const [inputVal, setInputVal] = useState('');
@@ -67,6 +69,21 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
   });
 
   const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isPreview) return;
+    // حركة ترحيبية لطيفة مرة واحدة عند دخول صفحة الهبوط عشان الزائر يلاحظ شموسة بشخصيتها الحقيقية
+    try {
+      const doneKey = 'shamousa_landing_intro_orbit_v1';
+      if (!sessionStorage.getItem(doneKey)) {
+        const t = window.setTimeout(() => {
+          sessionStorage.setItem(doneKey, '1');
+          setOrbitNonce(Date.now());
+        }, 1200);
+        return () => window.clearTimeout(t);
+      }
+    } catch {}
+  }, [isPreview]);
 
   useEffect(() => {
     if (isOpen) {
@@ -202,7 +219,7 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
     }
 
     if (opt.action === 'not_what_i_meant') {
-      const origQ = opt.payload || 'استفسار زائر في صفحة الهبوط';
+      const origQ = opt.payload || 'مقترح زائر من صفحة الهبوط';
       setAwaitingSuggestionFor(origQ);
       setMessages((prev) => [
         ...prev,
@@ -211,8 +228,8 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
           id: `a_${Date.now() + 1}`,
           role: 'assistant',
           text:
-            `حقك عليّا ☀️ اكتبلي بالظبط قصدك إيه أو لو في ميزة جديدة نفسك تكون موجودة في المنظومة — وهجاوبك فوراً أو أبعت مقترحك مباشرة لإدارة الشمساوية (السوبر أدمن)!`,
-          options: [{ id: 'cancel_sug', label: 'رجّعني لاختيارات الأدوار ☀️', action: 'clear_filter' }],
+            `تحت أمرك يا فندم ☀️ اكتبلي مقترحك أو الميزة اللي تحب نضيفها في منظومة الشمساوية، وهوصّله فوراً لإدارة الشمساوية (السوبر أدمن)!`,
+          options: [{ id: 'cancel_sug', label: 'إلغاء والرجوع للأقسام ☀️', action: 'clear_filter' }],
         },
       ]);
     }
@@ -231,8 +248,11 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
       visitorRole,
     });
 
-    if (reply.capturedSuggestionText && awaitingSuggestionFor) {
-      submitVisitorSuggestionToServer(awaitingSuggestionFor, reply.capturedSuggestionText);
+    if (reply.capturedSuggestionText) {
+      submitVisitorSuggestionToServer(
+        awaitingSuggestionFor || 'مقترح مباشر من زائر صفحة الهبوط',
+        reply.capturedSuggestionText
+      );
       setAwaitingSuggestionFor(null);
       playSuccessSound();
     } else if (reply.awaitingVisitorSuggestionFor) {
@@ -252,10 +272,13 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-[95] flex flex-col items-start gap-2" dir="rtl">
-      {/* First-Minute Welcome Greeting Bubble (Non-Intrusive & Dismissible) */}
+    <>
+      {/* First-Minute Welcome Speech Bubble above Shamousa (Dismissible) */}
       {!isOpen && showGreetingBubble && (
-        <div className="max-w-[270px] rounded-2xl border border-[#EA580C]/35 bg-white dark:bg-[#0D162E] shadow-xl p-3 text-right relative">
+        <div
+          className="fixed bottom-24 left-4 z-[94] max-w-[265px] rounded-2xl border border-[#EA580C]/40 bg-white/95 dark:bg-[#0D162E]/95 backdrop-blur-md shadow-xl p-3 text-right"
+          dir="rtl"
+        >
           <button
             type="button"
             onClick={() => setShowGreetingBubble(false)}
@@ -268,7 +291,7 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
             أهلاً بيك! أنا <span className="text-[#EA580C] dark:text-[#FBBF24]">شموسة</span> ☀️
           </p>
           <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] mt-1 leading-snug">
-            قولي أنت فنان ولا مورّد ولا عميل وأنا أفلترلك الصفحة وأجاوبك على كل تفاصيل المنظومة أوفلاين!
+            اسألني في أي حاجة عن التكاليف أو التسويق أو سوق الشمساوية أو الموردين — أنا شغالة معاك أوفلاين 100%!
           </p>
           <button
             type="button"
@@ -279,133 +302,149 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
             }}
             className="mt-2 w-full px-3 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black cursor-pointer"
           >
-            ابدأ الحوار مع شموسة الآن ✨
+            كلّم شموسة دلوقتي ✨
           </button>
         </div>
       )}
 
-      {/* Floating Shamousa Button */}
+      {/* Real Animated Draggable Shamousa Character (Matching Studio Identity, 100% Offline) */}
       {!isOpen && (
-        <button
-          type="button"
+        <DraggableShamosa
+          storageKey="shamousa_landing_fab_pos"
+          orbitTriggerNonce={orbitNonce}
+          isGlowingAlert={Boolean(activeFilter) || showGreetingBubble}
           onClick={() => {
             playButtonClickSound();
             setShowGreetingBubble(false);
             setIsOpen(true);
           }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-gradient-to-l from-[#EA580C] to-[#D97706] hover:from-[#C2410C] hover:to-[#B45309] text-white shadow-[0_10px_28px_rgba(234,88,12,0.42)] border border-white/25 cursor-pointer transition-transform hover:scale-[1.03] active:scale-[0.98]"
-          aria-label="تحدث مع شموسة"
         >
-          <Sun className="w-5 h-5 text-amber-200 shrink-0" />
-          <span className="text-xs font-black whitespace-nowrap">
-            {activeFilter ? 'شموسة (مفلتر) ☀️' : 'جرّب شموسة دلوقتي ☀️'}
-          </span>
-        </button>
+          <div
+            className="relative group flex flex-col items-center"
+            title="اضغط للتحدث مع شموسة — مرشدة الشمساوية (أوفلاين 100%)"
+          >
+            <div className="w-12 h-14 sm:w-14 sm:h-16 relative transition-transform group-hover:scale-110">
+              <ShamousaMascotFull height="100%" />
+            </div>
+            <span className="-mt-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-black tracking-wide bg-[#0B1739]/90 text-amber-300 border border-amber-400/40 shadow-md backdrop-blur-sm whitespace-nowrap">
+              شموسة
+            </span>
+          </div>
+        </DraggableShamosa>
       )}
 
       {/* Interactive Offline Chat Panel */}
       {isOpen && (
-        <div className="w-[calc(100vw-2rem)] sm:w-[390px] max-h-[78vh] rounded-3xl border border-[#D4CCBC] dark:border-[#243968] bg-[#FAF7F0] dark:bg-[#0A1124] shadow-2xl flex flex-col overflow-hidden">
-          <div className="px-4 py-3 bg-gradient-to-l from-[#EA580C] to-[#C2410C] text-white flex items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center shrink-0">
-                <Sun className="w-4 h-4 text-amber-200" />
+        <div className="fixed bottom-4 left-4 z-[95] flex flex-col items-start gap-2" dir="rtl">
+          <div className="w-[calc(100vw-2rem)] sm:w-[395px] max-h-[78vh] rounded-3xl border border-[#D4CCBC] dark:border-[#243968] bg-[#FAF7F0] dark:bg-[#0A1124] shadow-2xl flex flex-col overflow-hidden">
+            <div className="px-4 py-3 bg-gradient-to-l from-[#0C1427] via-[#132040] to-[#1D3263] text-white flex items-center justify-between gap-2 shrink-0 border-b border-amber-400/25">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <ShamousaMascotAvatar size="sm" statusDot />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black leading-tight text-amber-300 truncate">
+                    شموسة
+                  </h3>
+                  <p className="text-[10px] text-slate-300 truncate">
+                    مرشدة الشمساوية · أوفلاين 100%
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <h3 className="text-sm font-black leading-tight">شموسة — مرشدة الشمساوية</h3>
-                <p className="text-[10px] text-amber-100 truncate">
-                  تفاعلية أوفلاين 100% · فلترة ذكية للصفحة
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              {activeFilter && (
+              <div className="flex items-center gap-1">
+                {activeFilter && (
+                  <button
+                    type="button"
+                    onClick={() => onApplyFilter(null)}
+                    className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-[10px] font-black inline-flex items-center gap-1 cursor-pointer"
+                    title="إلغاء الفلتر"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>الكل</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => onApplyFilter(null)}
-                  className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-[10px] font-black inline-flex items-center gap-1 cursor-pointer"
-                  title="إلغاء الفلتر"
+                  onClick={() => setIsOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-white/15 cursor-pointer"
+                  aria-label="إغلاق"
                 >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>الكل</span>
+                  <X className="w-4 h-4" />
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-white/15 cursor-pointer"
-                aria-label="إغلاق"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`flex flex-col gap-1.5 ${m.role === 'user' ? 'items-start' : 'items-end'}`}
-              >
-                <div
-                  className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-                    m.role === 'user'
-                      ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white rounded-tr-sm'
-                      : 'bg-white dark:bg-[#132040] border border-[#E5DEC9] dark:border-[#243968] text-[#0C1427] dark:text-[#F7F3EA] rounded-tl-sm'
-                  }`}
-                >
-                  {renderLandingText(m.text)}
-                </div>
-
-                {m.options && m.options.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 max-w-[95%]">
-                    {m.options.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => handleOptionClick(opt)}
-                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition cursor-pointer ${
-                          opt.action === 'navigate'
-                            ? 'bg-[#EA580C] hover:bg-[#C2410C] text-white shadow-xs'
-                            : 'bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#2B4378] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C]'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
-            ))}
-            <div ref={endRef} />
-          </div>
+            </div>
 
-          <form
-            onSubmit={handleSendText}
-            className="p-2.5 bg-white dark:bg-[#0D162E] border-t border-[#E5DEC9] dark:border-[#1E2E52] flex items-center gap-2 shrink-0"
-          >
-            <input
-              type="text"
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              placeholder={
-                awaitingSuggestionFor
-                  ? 'اكتب مقترحك وهبعته مباشرة للسوبر أدمن...'
-                  : 'اسألني عن أي حاجة في المنظومة أو مشكلة حرفة...'
-              }
-              className="flex-1 px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#243968] bg-[#FAF7F0] dark:bg-[#0A1124] text-xs text-[#0C1427] dark:text-[#F7F3EA] focus:outline-none focus:border-[#EA580C]"
-            />
-            <button
-              type="submit"
-              className="p-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white cursor-pointer shrink-0"
-              aria-label="إرسال"
+            <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
+              {messages.map((m) => (
+                <div
+                  key={m.id}
+                  className={`flex flex-col gap-1.5 ${m.role === 'user' ? 'items-start' : 'items-end'}`}
+                >
+                  <div className={`flex items-end gap-1.5 max-w-[95%] ${m.role === 'user' ? '' : 'flex-row-reverse'}`}>
+                    {m.role === 'assistant' && (
+                      <div className="shrink-0 mb-0.5">
+                        <ShamousaMascotAvatar size="xs" statusDot={false} />
+                      </div>
+                    )}
+                    <div
+                      className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                        m.role === 'user'
+                          ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white rounded-tr-sm'
+                          : 'bg-white dark:bg-[#132040] border border-[#E5DEC9] dark:border-[#243968] text-[#0C1427] dark:text-[#F7F3EA] rounded-tl-sm'
+                      }`}
+                    >
+                      {renderLandingText(m.text)}
+                    </div>
+                  </div>
+
+                  {m.options && m.options.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 max-w-[95%]">
+                      {m.options.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handleOptionClick(opt)}
+                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black transition cursor-pointer ${
+                            opt.action === 'navigate'
+                              ? 'bg-[#EA580C] hover:bg-[#C2410C] text-white shadow-xs'
+                              : 'bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#2B4378] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C]'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={endRef} />
+            </div>
+
+            <form
+              onSubmit={handleSendText}
+              className="p-2.5 bg-white dark:bg-[#0D162E] border-t border-[#E5DEC9] dark:border-[#1E2E52] flex items-center gap-2 shrink-0"
             >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
+              <input
+                type="text"
+                value={inputVal}
+                onChange={(e) => setInputVal(e.target.value)}
+                placeholder={
+                  awaitingSuggestionFor
+                    ? 'اكتب مقترحك وهبعته مباشرة للسوبر أدمن...'
+                    : 'اسأل شموسة: تكاليف، تسويق، أسواق، خامات، باقات...'
+                }
+                className="flex-1 px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#243968] bg-[#FAF7F0] dark:bg-[#0A1124] text-xs text-[#0C1427] dark:text-[#F7F3EA] focus:outline-none focus:border-[#EA580C]"
+              />
+              <button
+                type="submit"
+                className="p-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white cursor-pointer shrink-0"
+                aria-label="إرسال"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 

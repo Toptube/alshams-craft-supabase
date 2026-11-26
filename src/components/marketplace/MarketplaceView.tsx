@@ -2462,7 +2462,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         }}
       />
 
-      {/* ويدجت شموسة الأوفلاين 100% لسوق الشمسية (تفلتر الشبكة + هدية سريعة + Lead Magnet) */}
+      {/* ويدجت شموسة الأوفلاين 100% لسوق الشمساوية (تفلتر الشبكة + هدية سريعة + Lead Magnet) */}
       <ShamousaMarketAssistantWidget
         mode="alshams_market"
         catalog={sanitizedShamousaCatalog}
