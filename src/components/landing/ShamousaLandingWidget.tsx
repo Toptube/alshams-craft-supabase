@@ -291,7 +291,7 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
             أهلاً بيك! أنا <span className="text-[#EA580C] dark:text-[#FBBF24]">شموسة</span> ☀️
           </p>
           <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] mt-1 leading-snug">
-            اسألني في أي حاجة عن التكاليف أو التسويق أو سوق الشمساوية أو الموردين — أنا شغالة معاك أوفلاين 100%!
+            اسألني في أي حاجة عن التكاليف أو التسويق أو سوق الشمساوية أو الموردين — سريعة وذكية، شغالة معاك أونلاين وأوفلاين بخصوصية تامة!
           </p>
           <button
             type="button"
@@ -321,7 +321,7 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
         >
           <div
             className="relative group flex flex-col items-center"
-            title="اضغط للتحدث مع شموسة — مرشدة الشمساوية (أوفلاين 100%)"
+            title="اضغط للتحدث مع شموسة — مرشدة الشمساوية الذكية"
           >
             <div className="w-12 h-14 sm:w-14 sm:h-16 relative transition-transform group-hover:scale-110">
               <ShamousaMascotFull height="100%" />
@@ -333,7 +333,7 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
         </DraggableShamosa>
       )}
 
-      {/* Interactive Offline Chat Panel */}
+      {/* Interactive Chat Panel */}
       {isOpen && (
         <div className="fixed bottom-4 left-4 z-[95] flex flex-col items-start gap-2" dir="rtl">
           <div className="w-[calc(100vw-2rem)] sm:w-[395px] max-h-[78vh] rounded-3xl border border-[#D4CCBC] dark:border-[#243968] bg-[#FAF7F0] dark:bg-[#0A1124] shadow-2xl flex flex-col overflow-hidden">
@@ -345,7 +345,7 @@ export const ShamousaLandingWidget: React.FC<ShamousaLandingWidgetProps> = ({
                     شموسة
                   </h3>
                   <p className="text-[10px] text-slate-300 truncate">
-                    مرشدة الشمساوية · أوفلاين 100%
+                    مرشدة الشمساوية · خصوصية تامة · أونلاين وأوفلاين
                   </p>
                 </div>
               </div>

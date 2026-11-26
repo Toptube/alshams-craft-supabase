@@ -174,7 +174,7 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
       id: 'welcome_mkt',
       role: 'assistant',
       text: isSupplierSurface
-        ? `أهلاً بيك يا فندم في **${storeName || 'سوق الموردين'}** ☀️\nأنا **شموسة** (أوفلاين 100%) — قولي بتدور على أنهي خامة أو ميزانية وهفلترلك الشاشة قدامك فوراً!`
+        ? `أهلاً بيك يا فندم في **${storeName || 'سوق الموردين'}** ☀️\nأنا **شموسة** — قولي بتدور على أنهي خامة أو ميزانية وهفلترلك الشاشة قدامك فوراً!`
         : `أهلاً وسهلاً بيك في **${storeName || 'سوق الشمساوية'}** ☀️\nأنا **شموسة** — قولي بتدور على هدية أو قطعة إيه (وميزانيتك لو حابب) وهفلترلك المنتجات قدامك في ثانية!`,
       options: isSupplierSurface
         ? [
@@ -358,7 +358,7 @@ export const ShamousaMarketAssistantWidget: React.FC<ShamousaMarketAssistantWidg
                     شموسة
                   </h3>
                   <p className="text-[10px] text-slate-300 truncate">
-                    {storeName || (isSupplierSurface ? 'سوق الموردين' : 'سوق الشمساوية')} · أوفلاين 100%
+                    {storeName || (isSupplierSurface ? 'سوق الموردين' : 'سوق الشمساوية')} · مساعدة ذكية فورية
                   </p>
                 </div>
               </div>

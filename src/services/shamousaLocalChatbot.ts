@@ -19,6 +19,7 @@ import {
   isExperienceItemVisibleFromConfig,
 } from '../types/experienceMode';
 import { hasFeature, type AccountPackageQueryOptions } from '../types/subscriptions';
+import { tryHandleShamousaPersonality } from './shamousaSharedCore';
 
 export interface ShamousaChatbotOption {
   id: string;
@@ -905,8 +906,8 @@ const CORE_KNOWLEDGE_TOPICS: KnowledgeTopic[] = [
     ],
     buildReply: (firstName) => ({
       reply:
-        `أنا **شموسة** ☀️، مديرة الأعمال والعمليات اليومية في **منظومة الشمساوية** (شركة الشمس كرافت — تأسيس **الباشمهندس حسام بسيوني**).\n` +
-        `شغالة معاك بالنظام الذكي جوه المنظومة عشان أجاوبك فوراً في التسعير، الخامات الموحدة، الخزينة، العملاء، والمخزن.\n` +
+        `أنا **شموسة** ☀️، مديرة الأعمال والعمليات اليومية في **منظومة الشمساوية** (من إنتاج **الشمس كرافت** بالتعاون مع **تايجوس Tygos** — تأسيس وتصميم **المهندس حسام بسيوني**).\n` +
+        `شغالة معاك **أونلاين وأوفلاين بسلاسة** بحماية وفصل تام بين بيانات كل فنان والتاني وكل مورّد والتاني، عشان أساعدك فوراً في التسعير، الخامات الموحدة، الخزينة، العملاء، والمخزن.\n` +
         `ولو حابب تفتحلي البحث المباشر على الإنترنت عشان أدوّرلك في السوق أكتر، اضغط بس على **صورتي اللي جنب خانة الكتابة عشان تنوّر أخضر 🟢**!`,
       options: [
         { id: 'id_brief', label: 'موقفي المالي الآن (هلخصهالك) 📋', intentKey: 'full_brief' },
@@ -2267,6 +2268,45 @@ export function resolveShamousaLocalChatbot(
         nextState: { lastTopicId: `custom_rule_${rule.id}`, lastOptions: ruleOpts, turnCount: nextTurnCount },
       };
     }
+  }
+
+  // 6.5. UNIFIED EGYPTIAN COMPLIMENTS, BLESSINGS (INCLUDING SHAMOUSA + SAQR), CREATOR LORE & GRATITUDE (INTERNAL SPECIALIZATION)
+  const internalPersonalityHit = tryHandleShamousaPersonality(
+    rawQuery,
+    isSupplier ? 'internal_supplier' : 'internal_workspace',
+    undefined,
+    firstName
+  );
+  if (internalPersonalityHit) {
+    const persOpts: ShamousaChatbotOption[] = [];
+    if (canBrief) {
+      persOpts.push({
+        id: 'ip_brief',
+        label: '1) هلخصهالك (الموقف المالي والمخزن) 📋',
+        intentKey: isSupplier ? 'sup_full_brief' : 'full_brief',
+      });
+    }
+    if (!isSupplier && canCosting) {
+      persOpts.push({ id: 'ip_price', label: '2) عايز أسعّر منتج 🧮', queryText: 'عايز أسعّر منتج' });
+    } else if (isSupplier) {
+      persOpts.push({ id: 'ip_sup_inv', label: '2) راجع مخازني وفروعي 📦', queryText: 'مخزون الفروع' });
+    }
+    persOpts.push({ id: 'ip_agenda', label: '3) مواعيد ومهام اليوم 📅', action: 'open_agenda' });
+    persOpts.push({ id: 'ip_falcon', label: '4) استشارة صقر الشمساوية 🦅', triggerFalcon: true });
+
+    return {
+      handled: true,
+      confidence: 'high',
+      matchedTopicId: `shared_${internalPersonalityHit.kind}`,
+      matchedKeyword: internalPersonalityHit.matchedTitleAr,
+      reply: internalPersonalityHit.text,
+      options: persOpts,
+      nextState: {
+        lastTopicId: `shared_${internalPersonalityHit.kind}`,
+        lastOptions: persOpts,
+        turnCount: nextTurnCount,
+      },
+    };
   }
 
   // 7. GUIDED FLOW A TRIGGER — "عايز أسعّر قطعة مكرمية / منتج" (Acceptance Test #1)

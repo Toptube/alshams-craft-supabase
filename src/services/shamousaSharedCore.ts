@@ -1,36 +1,55 @@
 /**
- * النواة المعرفية والشخصية الموحدة لـ «شموسة» (أوفلاين 100%)
- * تخدم «شموسة» في كل مكان بشخصية مصرية راقية وواثقة ولارج ودمها خفيف، مع فصل صارم للأسلوب حسب السياق:
+ * النواة المعرفية والشخصية الموحدة لـ «شموسة» في كل أنحاء منظومة الشمساوية
+ * تخدم «شموسة» بشخصية مصرية راقية وواثقة ولارج ودمها خفيف، مع فصل صارم للأسلوب والتخصص حسب السياق:
  * - صفحة الهبوط (landing): مرشدة وموسوعة شاملة لكل كبيرة وصغيرة في المنظومة.
- * - سوق الشمساوية (alshams_market) ومتاجر الفنانين (artisan_storefront): مساعدة تسوق شخصية أنيقة تركّز على الهدايا والفلترة وتوفير الشحن والمقارنة.
+ * - داخل حساب الورشة/الفنان (internal_workspace): مديرة أعمالك اليومية للتكاليف والمخزون والخزائن والتسويق.
+ * - داخل حساب المورّد (internal_supplier): مديرة عمليات التوريد والمخازن والفروع وكاشير POS.
+ * - سوق الشمساوية (alshams_market) ومتاجر الفنانين (artisan_storefront): مساعدة تسوق شخصية أنيقة للهدايا والفلترة وتوفير الشحن والمقارنة.
  * - سوق الموردين (suppliers_market) ومتاجر الموردين (supplier_storefront): خبيرة خامات وتوريد جملة B2B.
  *
  * تشمل:
  * 1. هوية شموسة ونشأة منظومة الشمساوية: إنتاج «الشمس كرافت» بالتعاون مع «تايجوس Tygos» — تأسيس وتصميم المهندس حسام بسيوني.
- * 2. فهم دلالي بالاقتران المفهومي (Concept-Pair Detection) لكل صيغ السؤال عن المصمم/المؤسس/الأصل/الهوية.
- * 3. ردود راقية وواثقة (لارج ودمها خفيف) على المجاملات والتحيات والهزار اللطيف.
+ * 2. محرك فهم دلالي بالاقتران المفهومي (Concept-Pair) + تحمّل الأخطاء الإملائية (Levenshtein + ضغط الحروف المكررة).
+ * 3. موسوعة شاملة لكل كلمات المجاملة والدعوات والتشجيع المصرية (بما فيها الدعوات لشموسة وأخوها صقر) بردود راقية وواثقة.
  * 4. بحث مباشر في سجل الحِرف الكامل (14 قسماً رئيسياً و 65+ حرفة فعلية من craftsRegistry.ts).
- * 5. بحث مباشر في دليل الاستخدام الرسمي (12 قسماً) وقاموس المصطلحات (13 مصطلحاً) وسجل التحديثات والشاشات الفعلية (changelog.ts + appRoutes.ts).
+ * 5. بحث مباشر في دليل الاستخدام الرسمي (12 قسماً) وقاموس المصطلحات (13 مصطلحاً) وسجل التحديثات والشاشات الفعلية.
  */
 
 import { normalizeArabicKnowledgeText } from './shamousaKnowledgeStore';
 import { GLOSSARY, GUIDE_SECTIONS, GlossaryItem, GuideSection } from '../guide/guide';
 import { CHANGELOG_RELEASES } from '../guide/changelog';
 import { MAIN_SECTIONS, SUB_CRAFTS_REGISTRY, SubCraftDefinition } from '../registry/craftsRegistry';
+import {
+  matchEgyptianSocialEncyclopedia,
+  normalizeSocialArabicText,
+  socialLevenshtein,
+} from '../data/shamousaEgyptianSocialEncyclopedia';
+import {
+  matchGreetingsAndFarewellsEncyclopedia,
+  type GreetingFarewellSurfaceInfo,
+} from '../data/shamousaGreetingsFarewellsEncyclopedia';
+
+export { normalizeSocialArabicText };
 
 export type ShamousaSurfaceContext =
   | 'landing'
   | 'alshams_market'
   | 'suppliers_market'
   | 'artisan_storefront'
-  | 'supplier_storefront';
+  | 'supplier_storefront'
+  | 'internal_workspace'
+  | 'internal_supplier';
 
 export interface SharedShamousaMatch {
   kind:
     | 'creator_and_identity'
+    | 'blessing_with_saqr'
+    | 'blessing_prayer'
     | 'compliment'
     | 'greeting'
     | 'gratitude_farewell'
+    | 'apology_polite'
+    | 'acknowledgment_agreement'
     | 'playful_banter'
     | 'not_shamsawy_identity'
     | 'capabilities_overview'
@@ -44,8 +63,17 @@ export interface SharedShamousaMatch {
   score?: number;
 }
 
-function getContextPivotLine(ctx: ShamousaSurfaceContext, storeName?: string): string {
+function getContextPivotLine(
+  ctx: ShamousaSurfaceContext,
+  storeName?: string,
+  firstName?: string
+): string {
+  const who = firstName ? `يا **${firstName}**` : 'يا فندم';
   switch (ctx) {
+    case 'internal_workspace':
+      return `تحت أمرك ${who} — تحب نشتغل دلوقتي على **حاسبة التكاليف، المخزون، أوامر التشغيل، التسويق، ولا نشوف «هلخصهالك 📋»**؟`;
+    case 'internal_supplier':
+      return `تحت أمرك ${who} — تحب نتابع دلوقتي **المخازن والفروع، شرائح الجملة، كاشير POS، ولا نشوف «هلخصهالك 📋»**؟`;
     case 'alshams_market':
       return `ودلوقتي أنا معاك في **سوق الشمساوية** 🛍️ — قولي بتدوّر على هدية أو قطعة إيه أو بميزانية كام وأصفّيلك السوق قدامك في ثانية!`;
     case 'suppliers_market':
@@ -60,16 +88,72 @@ function getContextPivotLine(ctx: ShamousaSurfaceContext, storeName?: string): s
   }
 }
 
-function pickClassyVariant(seedText: string, variants: string[]): string {
-  let hash = 0;
-  for (let i = 0; i < seedText.length; i++) {
-    hash = (hash * 31 + seedText.charCodeAt(i)) >>> 0;
+function getGreetingFarewellSurfaceInfo(
+  ctx: ShamousaSurfaceContext,
+  storeName?: string,
+  firstName?: string
+): GreetingFarewellSurfaceInfo {
+  const cleanName = firstName && firstName !== 'صديقي' ? firstName : '';
+  switch (ctx) {
+    case 'internal_workspace':
+      return {
+        whoLabel: cleanName ? `يا **${cleanName}**` : 'يا فنان',
+        placeLabel: 'ورشتك بمنظومة الشمساوية',
+        nextVisitHint: 'وفي انتظارك المرة الجاية نكمّل شغل الورشة والتسعير والتسويق بأعلى مستوى! ☀️',
+        isInternal: true,
+      };
+    case 'internal_supplier':
+      return {
+        whoLabel: cleanName ? `يا **${cleanName}**` : 'يا أستاذ',
+        placeLabel: 'حساب المورّد بمنظومة الشمساوية',
+        nextVisitHint: 'وفي انتظارك المرة الجاية نتابع المخازن والفروع وطلبات التوريد بأعلى مستوى! 📦☀️',
+        isInternal: true,
+      };
+    case 'alshams_market':
+      return {
+        whoLabel: 'يا فندم',
+        placeLabel: 'سوق الشمساوية 🛍️',
+        nextVisitHint: 'وفي انتظارك المرة الجاية في **سوق الشمساوية** تكتشف أجمل الهدايا والقطع اليدوية الفريدة! ☀️',
+        isInternal: false,
+      };
+    case 'suppliers_market':
+      return {
+        whoLabel: 'يا فندم',
+        placeLabel: 'سوق الموردين 📦',
+        nextVisitHint: 'وفي انتظارك المرة الجاية في **سوق الموردين** لأفضل الخامات وعروض الجملة! ☀️',
+        isInternal: false,
+      };
+    case 'artisan_storefront':
+      return {
+        whoLabel: 'يا فندم',
+        placeLabel: storeName ? `متجر ${storeName}` : 'متجر الورشة',
+        nextVisitHint: storeName
+          ? `وفي انتظارك المرة الجاية في **متجر ${storeName}** بأجمل القطع الجديدة! ☀️`
+          : 'وفي انتظارك المرة الجاية بأجمل القطع الجديدة! ☀️',
+        isInternal: false,
+      };
+    case 'supplier_storefront':
+      return {
+        whoLabel: 'يا فندم',
+        placeLabel: storeName ? `متجر ${storeName}` : 'متجر المورّد',
+        nextVisitHint: storeName
+          ? `وفي انتظارك المرة الجاية في **متجر ${storeName}** بأفضل الخامات والأسعار! ☀️`
+          : 'وفي انتظارك المرة الجاية بأفضل الخامات والأسعار! ☀️',
+        isInternal: false,
+      };
+    case 'landing':
+    default:
+      return {
+        whoLabel: 'يا فندم',
+        placeLabel: 'منظومة الشمساوية',
+        nextVisitHint: 'وفي انتظارك المرة الجاية دايماً، وأول ما تكون جاهز سجّل مجاناً وجرّب المنظومة بنفسك! ☀️✨',
+        isInternal: false,
+      };
   }
-  return variants[hash % variants.length];
 }
 
 // ============================================================================
-// 1) طبقة الشخصية، الهوية، المصمم/المؤسس (بالاقتران المفهومي)، المجاملات الراقية، والهزار اللطيف
+// 1) طبقة الهوية والمصمم + الربط الكامل بموسوعة المجاملات والدعوات المصرية
 // ============================================================================
 
 const DIRECT_IDENTITY_OR_ORIGIN_PATTERNS: RegExp[] = [
@@ -82,19 +166,21 @@ const DIRECT_IDENTITY_OR_ORIGIN_PATTERNS: RegExp[] = [
 function isCreatorOrMakerConceptQuery(norm: string): boolean {
   if (DIRECT_IDENTITY_OR_ORIGIN_PATTERNS.some((re) => re.test(norm))) return true;
 
-  // 1) وجود كلمة استفهام/سؤال عن الفاعل أو صاحب العمل
+  // لا نخلط بين السؤال الودي «عاملة إيه يا شموسة» وبين السؤال عن من صمّم/عمل المنظومة
+  if (/(عامله\s*ايه|عامل\s*ايه|عاملين\s*ايه|اخبارك\s*ايه)/.test(norm) && !/(مين|مصمم|صمم|مؤسس|اسس|برمج|مطور)/.test(norm)) {
+    return false;
+  }
+
   const hasWhoCue = /(^|\s)(مين|من|انهي|اي|ايه|مصممك|مؤسسك|مطورك|مخترعك|صاحب|مؤسس|مصمم|مطور)(\s|$)/.test(norm);
   if (!hasWhoCue) return false;
 
-  // 2) أفعال التصميم/التأسيس/البرمجة الواضحة بذاتها في أي مكان بالجملة
   const hasStrongMakerVerb =
-    /(صمم|مصمم|برمج|مبرمج|اخترع|مخترع|اسس|مؤسس|بنى|باني|انشا|منشئ|صنع|طور|مطور|ورا\s*(الشغل|البرنامج|المنظوم|المنص|الشمساو|الموقع)|وراء\s*(الشغل|البرنامج|المنظوم|المنص|الشمساو|الموقع)|صاحب\s*(الشغل|البرنامج|المنظوم|المنص|الفكر|الشمساو|الموقع))/.test(
+    /(صمم|مصمم|برمج|مبرمج|اخترع|مخترع|اسس|مؤسس|بني|باني|انشا|منشئ|صنع|طور|مطور|ورا\s*(الشغل|البرنامج|المنظوم|المنص|الشمساو|الموقع)|وراء\s*(الشغل|البرنامج|المنظوم|المنص|الشمساو|الموقع)|صاحب\s*(الشغل|البرنامج|المنظوم|المنص|الفكر|الشمساو|الموقع))/.test(
       norm
     );
   if (hasStrongMakerVerb) return true;
 
-  // 3) أفعال أعم (عمل / عامل / مهندس / شركة) بشرط ارتباطها بالمنظومة/الشغل/البرنامج/شموسة
-  const hasGeneralMakerWord = /(عمل|عامل|المهندس|مهندس|الشركه|شركه|الشخص|الفريق)/.test(norm);
+  const hasGeneralMakerWord = /(^|\s)(عمل|عملك|عامل|المهندس|مهندس|الشركه|شركه|الشخص|الفريق)(\s|$)/.test(norm);
   const hasEntityReference =
     /(شغل|الشغل|منظوم|برنام|منص|موقع|تطبيق|شمساو|شموس|عملك|عامل\s*ده|كل\s*ده|الحاجات\s*دي|الجمال\s*ده|الابداع\s*ده|النظام)/.test(
       norm
@@ -106,22 +192,6 @@ const NOT_SHAMSAWY_PATTERNS: RegExp[] = [
   /(انا\s*مش\s*شمساو|مش\s*شمساو|لست\s*شمساو|مش\s*من\s*الشمساو|مش\s*عضو|مش\s*مشترك\s*معاكم|يعني\s*ايه\s*شمساو|ليه\s*اسمها\s*الشمساو)/,
 ];
 
-const COMPLIMENT_PATTERNS: RegExp[] = [
-  /(انتي\s*)?(هايله|هايل|جميله|جميل|قمر|عسل|شاطره|شاطر|تحفه|جامده|جامد|روعه|ممتازه|ممتاز|ذكيه|ذكي|فنانه|مبدعه|مبدع|خطيره|خطير|رهيبه|رهيب|لذيذه|لطيفه|رائعه|رائع|برافو|عظيمه|عظيم|مدهشه|برنس|برنسيسه|ست\s*الكل|يا\s*سلام|ما\s*شاء\s*الله|ماشاء\s*الله|بسم\s*الله\s*ما\s*شاء\s*الله|الله\s*ينور|تسلم\s*ايدك|تسلم\s*ايديكي|تسلم\s*ايديك|بحبك|عجبني|عاجبني|يعجبني\s*شغلك|زي\s*الفل|شغل\s*عالي|شغل\s*فاخر|فوق\s*الممتاز|تجنني|كلك\s*ذوق|ذوقك\s*عالي|دمك\s*خفيف|شيك|فخامه|فخم\s*جدا)/,
-];
-
-const GREETING_PATTERNS: RegExp[] = [
-  /^(صباح\s*الخير|صباح\s*الفل|صباح\s*النور|صباح\s*الورد|مساء\s*الخير|مساء\s*النور|مساء\s*الفل|السلام\s*عليكم|سلام\s*عليكم|اهلا|اهلا\s*بيكي|اهلا\s*يا\s*شموسه|مرحبا|ازيك|ازيكم|عامله\s*ايه|عامل\s*ايه|اخبارك|اخبارك\s*ايه|هاي|هالو|هلا|الو|منوره|منوره\s*يا\s*شموسه|يا\s*شموسه|شموسه|شموستي)([!؟?.\s]*)$/,
-];
-
-const GRATITUDE_PATTERNS: RegExp[] = [
-  /^(شكرا|شكرا\s*جدا|شكرا\s*ليكي|متشكر|متشكره|تسلمي|تسلميلي|تسلم|تسلم\s*يا\s*رب|الله\s*يكرمك|جزاك\s*الله\s*خيرا|جزاكي\s*الله|ربنا\s*يباركلك|ربنا\s*يخليكي|يعطيكي\s*العافيه|كتر\s*خيرك|ممتن|سلام|مع\s*السلامه|باي|تصبح\s*على\s*خير|تصبحي\s*على\s*خير)([!؟?.\s]*)$/,
-];
-
-const PLAYFUL_BANTER_PATTERNS: RegExp[] = [
-  /(عندك\s*مايوه|مايوه|بتطبخي|طبخ|مكرونه|كشري|محشي|نكته|احكيلي\s*نكته|ضحكيني|هتتجوزيني|اتجوزك|بتتجوزي|عايز\s*قهوه|اعمليلي\s*شاي|اعمليلي\s*قهوه|بتشجعي\s*الاهلي|الاهلي\s*ولا\s*الزمالك|الجو\s*ايه|اخبار\s*الطقس|بتنامي\s*امتى|عندك\s*كام\s*سنه|سنك\s*كام|انتي\s*متجوزه)/,
-];
-
 const WHAT_DO_YOU_HAVE_PATTERNS: RegExp[] = [
   /^(عندك\s*ايه|عندكم\s*ايه|ايه\s*عندك|ايه\s*اللي\s*عندك|بتعرفي\s*تعملي\s*ايه|تقدري\s*تعملي\s*ايه|تقدري\s*تساعديني\s*في\s*ايه|بتعملي\s*ايه|ايه\s*خدماتك|ايه\s*خدماتكم|بتقدموا\s*ايه|قوليلي\s*عندكم\s*ايه|وريني\s*عندك\s*ايه)([!؟?.\s]*)$/,
 ];
@@ -129,24 +199,25 @@ const WHAT_DO_YOU_HAVE_PATTERNS: RegExp[] = [
 export function tryHandleShamousaPersonality(
   rawQuery: string,
   ctx: ShamousaSurfaceContext,
-  storeName?: string
+  storeName?: string,
+  firstName?: string
 ): SharedShamousaMatch | null {
-  const norm = normalizeArabicKnowledgeText(rawQuery);
+  const norm = normalizeSocialArabicText(rawQuery);
   if (!norm) return null;
 
-  const hasCreatorOrIdentity = isCreatorOrMakerConceptQuery(norm);
-  const hasCompliment = COMPLIMENT_PATTERNS.some((re) => re.test(norm));
-  const pivot = getContextPivotLine(ctx, storeName);
+  const who = firstName ? `يا **${firstName}**` : 'يا فندم';
+  const pivot = getContextPivotLine(ctx, storeName, firstName);
   const isMarketSurface = ctx === 'alshams_market' || ctx === 'artisan_storefront';
   const isSupplierSurface = ctx === 'suppliers_market' || ctx === 'supplier_storefront';
+  const isInternalSurface = ctx === 'internal_workspace' || ctx === 'internal_supplier';
 
-  // 1) سؤال عن المصمم / المهندس / الأصل / الشركة / الهوية (مفرد أو مدمج مع مجاملة)
-  if (hasCreatorOrIdentity) {
-    const warmPrefix = hasCompliment
-      ? `كلك ذوق والله يا فندم، شهادة أعتز بيها بجد! ☀️✨ ده من ذوق حضرتك الراقي.\n\n`
-      : `أهلاً بحضرتك يا فندم! ☀️\n`;
+  // 1) سؤال عن المصمم / المهندس / الأصل / الشركة / الهوية (مفرد أو مدمج مع مجاملة أو دعوة)
+  if (isCreatorOrMakerConceptQuery(norm)) {
+    const hasWarmIntro = /(هايل|تحفه|جميل|ممتاز|روعه|شاطر|برافو|ربنا|تسلم|بشكر|اشكر|عظم|شيك|فخم|ذوق)/.test(norm);
+    const warmPrefix = hasWarmIntro
+      ? `كلك ذوق والله ${who}، شهادة أعتز بيها بجد! ☀️✨ ده من ذوق حضرتك الراقي.\n\n`
+      : `أهلاً بحضرتك ${who}! ☀️\n`;
 
-    // فصل صارم بين صفحة الهبوط وسوق الشمساوية وسوق الموردين!
     if (isMarketSurface) {
       return {
         kind: 'creator_and_identity',
@@ -171,6 +242,19 @@ export function tryHandleShamousaPersonality(
       };
     }
 
+    if (isInternalSurface) {
+      return {
+        kind: 'creator_and_identity',
+        matchedTitleAr: 'مين شموسة ومين صمم منظومة الشمساوية',
+        text:
+          warmPrefix +
+          `أنا **شموسة** — مديرة أعمالك اليومية في **منظومة الشمساوية** (من إنتاج **الشمس كرافت** بالتعاون مع **تايجوس Tygos**، وتأسيس وتصميم **المهندس حسام بسيوني**).\n` +
+          `• شغالة معاك هنا **أونلاين وأوفلاين بسلاسة وبحماية وفصل تام بين بيانات كل فنان والتاني وكل مورّد والتاني** — يعني أرقامك وأسرار ورشتك خاصة بيك وحدك 100%.\n` +
+          `• ومعايا كمان أخويا **صقر الشمساوية AI** 🦅 والعقول التحليلية الثلاثة لو احتجت تحليل أعمق!\n\n` +
+          pivot,
+      };
+    }
+
     return {
       kind: 'creator_and_identity',
       matchedTitleAr: 'مين شموسة ومين صمم منظومة الشمساوية',
@@ -178,7 +262,7 @@ export function tryHandleShamousaPersonality(
         warmPrefix +
         `أنا **شموسة** — مديرة الأعمال والعمليات الذكية في **منظومة الشمساوية**، وهي من إنتاج **الشمس كرافت** بالتعاون مع **تايجوس (Tygos)**، ومن تأسيس وتصميم **المهندس حسام بسيوني**.\n` +
         `• المنظومة اتبنت بالكامل من الصفر مخصوص لـ **الفنانين وأصحاب الورش اليدوية (أكتر من 65 حرفة في 14 قسماً)، ومورّدي الخامات، والمدربين، وعملاء سوق الشمساوية**.\n` +
-        `• شغالة معاك هنا **أوفلاين 100%** وعارفة كل كبيرة وصغيرة في البرنامج من التكاليف والتسويق والمحاسبة لحد دليل الاستخدام، وجوه حسابك بيبقى معايا كمان **صقر الشمساوية AI** والعقول التحليلية الثلاثة!\n\n` +
+        `• شغالة معاك **أونلاين وأوفلاين بسلاسة وبسرعة فورية** — بتحمي بياناتك بالكامل مع **فصل تام ومستقل بين كل فنان والتاني وبين كل مورّد والتاني**، وجوه حسابك بيبقى معايا كمان **صقر الشمساوية AI** والعقول التحليلية الثلاثة!\n\n` +
         pivot,
     };
   }
@@ -189,76 +273,15 @@ export function tryHandleShamousaPersonality(
       kind: 'not_shamsawy_identity',
       matchedTitleAr: 'عيلة الشمساوية ولقب الشمساوي/الشمساوية',
       text:
-        `ولا يهمك خالص يا فندم، البيت بيتك وتشرفنا في أي وقت! ☀️✨\n` +
+        `ولا يهمك خالص ${who}، البيت بيتك وتشرفنا في أي وقت! ☀️✨\n` +
         `«الشمساوي» و«الشمساوية» ده اللقب العائلي اللطيف اللي بنرحّب بيه بكل فنان ومورّد وعميل بينوّرنا في **منظومة الشمساوية** (من إنتاج **الشمس كرافت** بالتعاون مع **تايجوس Tygos**، تصميم **المهندس حسام بسيوني**).\n` +
         `ومش شرط خالص تكون مشترك عشان أخدمك — ` +
         pivot,
     };
   }
 
-  // 2) مجاملة صافية راقية («بني آدمة لارج ودمها خفيف، مش لوكال!»)
-  if (hasCompliment && norm.split(' ').length <= 12) {
-    const mentionsProductOrFeature =
-      /(هديه|شنطه|مكرميه|ريزن|شموع|خيط|سعر|بكام|تكلفه|تكاليف|تسويق|سوق|باقه|باقات|مخزن|فاتوره|خزنه|مورد|خامات|حاسبه|اصول|طباعه)/.test(
-        norm
-      );
-    if (!mentionsProductOrFeature) {
-      const classyComplimentReply = pickClassyVariant(norm, [
-        `كلك ذوق والله يا فندم، شهادة أعتز بيها بجد! ☀️✨ ده من ذوق حضرتك الراقي.`,
-        `تسلم يا فندم، ده بس من ذوقك العالي! ☀️ مبسوطة جداً إن شغلي نال إعجابك.`,
-        `يا سلام على الكلام الراقي ده! ☀️✨ ده من ذوق حضرتك، ودايماً تحت أمرك بأعلى مستوى.`,
-      ]);
-      return {
-        kind: 'compliment',
-        matchedTitleAr: 'مجاملة وترحيب بشموسة',
-        text: `${classyComplimentReply}\n${pivot}`,
-      };
-    }
-  }
-
-  // 3) تحية صافية راقية
-  if (GREETING_PATTERNS.some((re) => re.test(norm))) {
-    return {
-      kind: 'greeting',
-      matchedTitleAr: 'ترحيب شموسة',
-      text: `أهلاً وسهلاً ومنوّر الدنيا يا فندم! ☀️\nأنا **شموسة** تحت أمرك — ${pivot}`,
-    };
-  }
-
-  // 4) شكر أو وداع راقي (بدون أي عبارات لوكال أو استعطاف!)
-  if (GRATITUDE_PATTERNS.some((re) => re.test(norm))) {
-    const classyThanksReply = pickClassyVariant(norm, [
-      `تسلم يا فندم، كلك ذوق! ☀️ ده أقل واجب وأنا تحت أمر حضرتك في أي وقت.`,
-      `العفو يا فندم، ده من ذوق حضرتك الراقي! ☀️ يسعدني أساعدك دايماً.`,
-      `على إيه يا فندم، ده واجبي وبكل سرور! ☀️ منوّرنا دايماً في **الشمساوية**.`,
-    ]);
-    return {
-      kind: 'gratitude_farewell',
-      matchedTitleAr: 'شكر ووداع',
-      text: `${classyThanksReply}\n${pivot}`,
-    };
-  }
-
-  // 5) هزار خفيف راقي ودمه خفيف
-  if (PLAYFUL_BANTER_PATTERNS.some((re) => re.test(norm))) {
-    const marketTwist = isMarketSurface
-      ? `أفلترلك **${storeName || 'سوق الشمساوية'}** في ثانية، أختارلك هدية شيك على قد ميزانيتك، وأوفرلك في الشحن كمان!`
-      : isSupplierSurface
-      ? `أجيبلك أفضل خامات في **${storeName || 'سوق الموردين'}** بشرائح الجملة وأقارنلك أسعار الموردين في ثانية!`
-      : `أحسبلك التكاليف بالملّي لأكتر من **65 حرفة**، أجهّزلك خطط تسويق احترافية، أرتّبلك مخزنك وخزنتك، أو أفلترلك **سوق الشمساوية**!`;
-
-    return {
-      kind: 'playful_banter',
-      matchedTitleAr: 'دردشة خفيفة مع شموسة',
-      text:
-        `ههههه دم حضرتك خفيف والله! 😄☀️ بس خلينا في ملعبي — أنا ماليش في المايوهات ولا الطبخ ولا القهوة، ملعبي الحقيقي هو **الشغل الراقي والهاندميد**!\n` +
-        `${marketTwist}\n\n` +
-        pivot,
-    };
-  }
-
-  // 6) "عندك إيه؟" / "بتعرفي تعملي إيه؟"
-  if (WHAT_DO_YOU_HAVE_PATTERNS.some((re) => re.test(norm))) {
+  // 2) "عندك إيه؟" / "بتعرفي تعملي إيه؟" (خارج الحساب المفتوح)
+  if (!isInternalSurface && WHAT_DO_YOU_HAVE_PATTERNS.some((re) => re.test(norm))) {
     if (isMarketSurface) {
       return {
         kind: 'capabilities_overview',
@@ -287,11 +310,75 @@ export function tryHandleShamousaPersonality(
       text:
         `عندي كل اللي ورشتك أو متجرك محتاجه من الألف للياء يا فندم ☀️🚀:\n` +
         `1. **حاسبة التكاليف والتسعير (65+ حرفة في 14 قسماً)** + ورشة دمج الحِرف + عزل الربح والهالك.\n` +
-        `2. **التسويق الذكي (35 تخصص حرفة + 14 أسلوب تسويق + 22 مشكلة فنية)** — أوفلاين 100%.\n` +
+        `2. **التسويق الذكي (35 تخصص حرفة + 14 أسلوب تسويق + 22 مشكلة فنية)** — سريع وفوري أونلاين وأوفلاين بخصوصية وفصل تام لبياناتك.\n` +
         `3. **سوق الشمساوية + سوق الموردين + متجر خاص مجاني (+10 سمات) + رابط مستقل لكل منتج**.\n` +
         `4. **إدارة ERP + HR كاملة:** مخازن وخامات موحدة، أوامر تشغيل، خزائن وفواتير A4/PDF، أصول ثابتة وإهلاك وصيانة، «هلخصهالك 📋»، الوضع البسيط vs المحاسبي وميزان المراجعة وقفل الشهر، رواتب وسلف، كاشير POS 80مم وفروع، ونسخ احتياطي JSON.\n` +
         `5. **محافظ النقاط المنفصلة + نظام الدعوات الثلاثي + صفحتي الشخصية + طبلية عيلة الشمساوية + دليل الاستخدام والقاموس**.\n\n` +
         `اختار أي تفصيلة من دول واسألني فيها، أو **سجّل دلوقتي مجاناً**!`,
+    };
+  }
+
+  // 3) موسوعة السلام والترحيب والمقابلة والوداع الشاملة (+380 عبارة في 11 باباً لكل الأماكن داخل وخارج المنظومة)
+  const greetingSurfaceInfo = getGreetingFarewellSurfaceInfo(ctx, storeName, firstName);
+  const greetingFarewellHit = matchGreetingsAndFarewellsEncyclopedia(rawQuery, greetingSurfaceInfo);
+  if (greetingFarewellHit) {
+    if (greetingFarewellHit.group === 'farewell') {
+      return {
+        kind: 'gratitude_farewell',
+        matchedTitleAr: greetingFarewellHit.titleAr,
+        text: greetingFarewellHit.reply,
+        score: greetingFarewellHit.score,
+      };
+    }
+    return {
+      kind: 'greeting',
+      matchedTitleAr: greetingFarewellHit.titleAr,
+      text: `${greetingFarewellHit.reply}\n${pivot}`,
+      score: greetingFarewellHit.score,
+    };
+  }
+
+  // 4) موسوعة اللباقة والمجاملات والدعوات والشكر المصرية الشاملة (+400 عبارة وجذر بتحمّل الأخطاء الإملائية)
+  const socialHit = matchEgyptianSocialEncyclopedia(rawQuery, who, {
+    allowGreetings: !isInternalSurface,
+    allowPlayful: !isInternalSurface,
+    allowShortAck: !isInternalSurface,
+  });
+
+  if (socialHit) {
+    if (socialHit.category === 'playful_banter') {
+      const marketTwist = isMarketSurface
+        ? `أفلترلك **${storeName || 'سوق الشمساوية'}** في ثانية، أختارلك هدية شيك على قد ميزانيتك، وأوفرلك في الشحن كمان!`
+        : isSupplierSurface
+        ? `أجيبلك أفضل خامات في **${storeName || 'سوق الموردين'}** بشرائح الجملة وأقارنلك أسعار الموردين في ثانية!`
+        : `أحسبلك التكاليف بالملّي لأكتر من **65 حرفة**، أجهّزلك خطط تسويق احترافية، أرتّبلك مخزنك وخزنتك، أو أفلترلك **سوق الشمساوية**!`;
+
+      return {
+        kind: 'playful_banter',
+        matchedTitleAr: socialHit.titleAr,
+        text: `${socialHit.baseReply}\n${marketTwist}\n\n${pivot}`,
+      };
+    }
+
+    const kindMap: Record<typeof socialHit.category, SharedShamousaMatch['kind']> = {
+      blessing_with_saqr: 'blessing_with_saqr',
+      blessing_prayer: 'blessing_prayer',
+      gratitude: 'gratitude_farewell',
+      farewell_polite: 'gratitude_farewell',
+      admiration_work_quality: 'compliment',
+      personal_compliment_shamousa: 'compliment',
+      greetings_warm: 'greeting',
+      apology_polite: 'apology_polite',
+      acknowledgment_agreement: 'acknowledgment_agreement',
+    };
+
+    const tailLine =
+      socialHit.category === 'farewell_polite' ? '' : `\n${pivot}`;
+
+    return {
+      kind: kindMap[socialHit.category],
+      matchedTitleAr: socialHit.titleAr,
+      text: `${socialHit.baseReply}${tailLine}`,
     };
   }
 
@@ -357,13 +444,12 @@ export function searchAllCraftsRegistryOffline(
   rawQuery: string,
   ctx: ShamousaSurfaceContext
 ): SharedShamousaMatch | null {
-  const norm = normalizeArabicKnowledgeText(rawQuery);
+  const norm = normalizeSocialArabicText(rawQuery);
   if (!norm || norm.length < 3) return null;
 
   const tokens = extractGuideTokens(norm);
   if (tokens.length === 0) return null;
 
-  // فحص 1: هل ذكر المستخدم قسماً رئيسياً كاملاً أو سأل عن "كام حرفة / كل الحرف / الـ 14 قسم"؟
   if (/(كل\s*الحرف|قائمه\s*الحرف|الحرف\s*المدعومه|كام\s*حرفه|كام\s*ورشه|كام\s*قسم|ال\s*14\s*قسم|اقسام\s*الحرف)/.test(norm)) {
     const sectionsList = MAIN_SECTIONS.map((s) => `• **${s.nameAr}** — ${s.description}`).join('\n');
     return {
@@ -379,7 +465,6 @@ export function searchAllCraftsRegistryOffline(
     };
   }
 
-  // فحص 2: مطابقة أي حرفة من الـ 65+ حرفة في SUB_CRAFTS_REGISTRY + المرادفات
   const stripAlWords = (s: string) => s.replace(/(^|\s)ال(?=[ء-ي]{3,})/g, '$1').trim();
   const normNoAl = stripAlWords(norm);
 
@@ -395,7 +480,6 @@ export function searchAllCraftsRegistryOffline(
     if (nameNorm.length >= 3 && norm.includes(nameNorm)) score += 35;
     else if (nameNormNoAl.length >= 3 && normNoAl.includes(nameNormNoAl)) score += 34;
 
-    // مطابقة المرادفات اليدوية الدقيقة
     for (const [aliasKey, terms] of Object.entries(REGISTRY_CRAFT_ALIASES)) {
       const idOrNameMatches =
         craft.id === aliasKey ||
@@ -420,6 +504,13 @@ export function searchAllCraftsRegistryOffline(
       if (nameNorm.includes(stem)) score += 9;
       else if (catsNorm.includes(stem)) score += 5;
       else if (descNorm.includes(stem)) score += 3;
+      else {
+        // تحمّل الأخطاء الإملائية في اسم الحرفة نفسها
+        const nameWords = nameNormNoAl.split(/\s+/);
+        if (nameWords.some((nw) => nw.length >= 4 && socialLevenshtein(stem, nw) <= 1)) {
+          score += 7;
+        }
+      }
     }
 
     if (!bestCraft || score > bestCraft.score) {
@@ -450,17 +541,16 @@ export function searchAllCraftsRegistryOffline(
 }
 
 // ============================================================================
-// 3) البحث في سجل التحديثات ونشأة المنظومة + المزايا الفعلية (أصول ثابتة، طباعة A4/PDF، نسخ احتياطي JSON، ميزان المراجعة...)
+// 3) البحث في سجل التحديثات ونشأة المنظومة + المزايا الفعلية
 // ============================================================================
 
 export function searchChangelogAndSystemFeaturesOffline(
   rawQuery: string,
   ctx: ShamousaSurfaceContext
 ): SharedShamousaMatch | null {
-  const norm = normalizeArabicKnowledgeText(rawQuery);
+  const norm = normalizeSocialArabicText(rawQuery);
   if (!norm || norm.length < 3) return null;
 
-  // أ) سجل التحديثات وتطور المنظومة منذ بدايتها
   if (/(سجل\s*التحديث|اخر\s*التحديث|تحديثات\s*(المنظومه|البرنامج|المنصه)|اصدارات|تطور\s*(المنظومه|الشمساويه)|الجديد\s*في\s*المنظومه|الاصدار\s*الحالي)/.test(norm)) {
     const latestThree = CHANGELOG_RELEASES.slice(0, 4)
       .map((r) => `• **الإصدار ${r.version} (${r.date}):** ${r.title}`)
@@ -471,14 +561,13 @@ export function searchChangelogAndSystemFeaturesOffline(
       text:
         `منظومة **الشمساوية** (إنتاج **الشمس كرافت** بالتعاون مع **تايجوس Tygos** — تأسيس **المهندس حسام بسيوني**) اتطورت خطوة بخطوة من حاسبة تكاليف هندسية إلى منظومة ERP + أسواق شاملة 🚀☀️:\n` +
         `${latestThree}\n` +
-        `• **أحدث المراحل المكتملة:** إطلاق **سوق الشمساوية** و**سوق الموردين** بـ **شموسة الأوفلاين** + **المقارنة ⚖️** + **محافظ النقاط المنفصلة (باقات / تسوق)** + **نظام الدعوات الثلاثي**!\n\n` +
+        `• **أحدث المراحل المكتملة:** إطلاق **سوق الشمساوية** و**سوق الموردين** بـ **شموسة الذكية** + **المقارنة ⚖️** + **محافظ النقاط المنفصلة (باقات / تسوق)** + **نظام الدعوات الثلاثي**!\n\n` +
         (ctx === 'landing'
           ? `✨ **سجّل دلوقتي مجاناً** واستمتع بكل الإصدارات والتحديثات المستمرة جوه حسابك!`
           : getContextPivotLine(ctx)),
     };
   }
 
-  // ب) الأصول الثابتة والمعدات والإهلاك والصيانة (fixed_assets)
   if (/(اصول\s*ثابت|الاصول\s*الثابت|اهلاك\s*(المعدات|الماكينات|الاجهزه|الاصول)|صيانه\s*(المعدات|الماكينات|الاجهزه)|جدول\s*الصيانه|ماكينات\s*الورشه|معدات\s*الورشه)/.test(norm)) {
     return {
       kind: 'system_feature',
@@ -494,14 +583,13 @@ export function searchChangelogAndSystemFeaturesOffline(
     };
   }
 
-  // ج) النسخ الاحتياطي اليدوي JSON Export
   if (/(نسخ\s*احتياط|نسخه\s*احتياط|باك\s*اب|backup|json|تصدير\s*بيانات|حفظ\s*نسخه\s*من\s*البيانات)/.test(norm)) {
     return {
       kind: 'system_feature',
       matchedTitleAr: 'النسخ الاحتياطي اليدوي الشامل (JSON Export)',
       text:
         `أكيد! أمان بياناتك أولوية عندنا 🛡️☀️:\n` +
-        `• بجانب **المزامنة السحابية التلقائية** والعمل الأوفلاين، عندك خيار **النسخ الاحتياطي اليدوي الشامل (JSON Export)** جوه إعدادات الورشة.\n` +
+        `• بجانب **المزامنة السحابية التلقائية** والعمل **أونلاين وأوفلاين** مع فصل تام لبيانات كل حساب، عندك خيار **النسخ الاحتياطي اليدوي الشامل (JSON Export)** جوه إعدادات الورشة.\n` +
         `• بضغطة زر بتنزل نسخة كاملة ومنظمة من كل بيانات حسابك (خامات، منتجات، فواتير، عملاء، خزائن) على جهازك متوافقة 100% مع الهيكلة السحابية!\n\n` +
         (ctx === 'landing'
           ? `✨ **سجّل دلوقتي مجاناً** وبياناتك دايماً في أمان وتحت إيدك 100%!`
@@ -509,7 +597,6 @@ export function searchChangelogAndSystemFeaturesOffline(
     };
   }
 
-  // د) طباعة A4 وتصدير PDF/صور ومشاركة الفاتورة بالواتساب + ريسيت 80 مم
   if (/(طباعه\s*a4|طباعه\s*فواتير|تصدير\s*pdf|pdf|ملف\s*pdf|طباعه\s*حراريه|ريسيت\s*80|فواتير\s*واتساب|مشاركه\s*الفاتوره)/.test(norm)) {
     return {
       kind: 'system_feature',
@@ -525,7 +612,6 @@ export function searchChangelogAndSystemFeaturesOffline(
     };
   }
 
-  // هـ) الوضع البسيط vs الوضع المحاسبي المتقدم + ميزان المراجعة + القيود المحاسبية + سجل التدقيق
   if (/(ميزان\s*المراجعه|القيود\s*المحاسبيه|قيد\s*محاسبي|سجل\s*التدقيق|audit|الوضع\s*البسيط|الوضع\s*المحاسبي|شجره\s*الحسابات)/.test(norm)) {
     return {
       kind: 'system_feature',
@@ -540,7 +626,6 @@ export function searchChangelogAndSystemFeaturesOffline(
     };
   }
 
-  // و) روابط الهبوط المستقلة للمنتج + استوديو البانرات + أرشيف المنتجات + شاشات «نبدأ ورشتنا» و«يومك في الورشة»
   if (/(رابط\s*منتج|صفحه\s*هبوط\s*للمنتج|استوديو\s*البانرات|بانرات|ارشيف\s*المنتجات|نبدا\s*ورشتنا|يومك\s*في\s*الورشه)/.test(norm)) {
     return {
       kind: 'system_feature',
@@ -567,7 +652,7 @@ export function searchUserGuideAndGlossaryOffline(
   rawQuery: string,
   ctx: ShamousaSurfaceContext
 ): SharedShamousaMatch | null {
-  const norm = normalizeArabicKnowledgeText(rawQuery);
+  const norm = normalizeSocialArabicText(rawQuery);
   if (!norm || norm.length < 3) return null;
 
   const isAskingDefinition = /(يعني\s*ايه|معنى|معني|الفرق\s*بين|ايه\s*هو|ايه\s*هي|يعني\s*اي|مفهوم|مصطلح|قاموس)/.test(
@@ -579,7 +664,6 @@ export function searchUserGuideAndGlossaryOffline(
   const tokens = extractGuideTokens(norm);
   if (tokens.length === 0) return null;
 
-  // أ) البحث في قاموس المصطلحات (GLOSSARY)
   let bestGlossary: { item: GlossaryItem; score: number } | null = null;
   for (const item of GLOSSARY) {
     const termNorm = normalizeArabicKnowledgeText(item.term);
@@ -633,7 +717,6 @@ export function searchUserGuideAndGlossaryOffline(
     };
   }
 
-  // ب) البحث في أقسام دليل الاستخدام الـ 12 (GUIDE_SECTIONS)
   let bestGuide: { section: GuideSection; score: number } | null = null;
   for (const sec of GUIDE_SECTIONS) {
     const titleNorm = normalizeArabicKnowledgeText(sec.title);

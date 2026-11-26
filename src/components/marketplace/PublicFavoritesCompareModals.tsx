@@ -553,7 +553,7 @@ export const PublicCompareModal: React.FC<PublicCompareModalProps> = ({
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
                   <span className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                    تصفية شموسة الذكية (أوفلاين 100%)
+                    تصفية شموسة الذكية
                   </span>
                 </div>
                 {!hidePrices && (

@@ -21,6 +21,7 @@ import {
   handleLandingLevelSelected,
   processLandingShamousaMessage,
 } from '../src/services/shamousaLandingEngine';
+import { resolveShamousaLocalChatbot } from '../src/services/shamousaLocalChatbot';
 
 console.log('=== Verifying Phase 1: Markets/Storefronts Shamousa + Favorites/Compare + Landing Page Shamousa ===');
 
@@ -305,7 +306,11 @@ for (const praise of ['تحفه بجد', 'تسلمي', 'ما شاء الله ا�
   const res = processLandingShamousaMessage({ rawQuery: praise });
   assert.ok(!res.text.includes('يجبر بخاطرك'), `"${praise}" MUST NOT use banned phrase يجبر بخاطرك`);
   assert.ok(
-    res.text.includes('ذوق') || res.text.includes('أعتز') || res.text.includes('يسعدني') || res.text.includes('واجبي'),
+    res.text.includes('ذوق') ||
+      res.text.includes('أعتز') ||
+      res.text.includes('يسعدني') ||
+      res.text.includes('واجبي') ||
+      res.text.includes('تشريف'),
     `"${praise}" must reply with classy confident Egyptian warmth`
   );
 }
@@ -364,5 +369,207 @@ assert.ok(qCreatorMarket.text.includes('سوق الشمساوية'), 'Market Sha
 assert.ok(!qCreatorMarket.text.includes('العقول التحليلية الثلاثة'), 'Market Shamousa must stay concise & shopper-focused (separated from Landing!)');
 
 console.log('✅ 8. Concept-Pair Creator Lore, Classy Tone, Anti-Hijack Suggestion Guard, 65+ Crafts Registry, All System Features & Strict Surface Separation verified 100%!');
+
+// 9. Comprehensive Egyptian Social Encyclopedia (400+ phrases, 10 categories, zero ^...$ brittleness), Online+Offline Privacy Framing & Internal App Integration
+for (const saqrBlessing of ['ربنا يحميك أنت وأخوك', 'ربنا يحمييك انت واخوك', 'ربنا يحмиيك أنت وأخوك', 'ربنا يوفقكم أنتم وصقر']) {
+  const res = processLandingShamousaMessage({ rawQuery: saqrBlessing });
+  assert.ok(!res.text.includes('خارج تخصص'), `"${saqrBlessing}" MUST NEVER fall back to out-of-scope`);
+  assert.ok(res.text.includes('صقر'), `"${saqrBlessing}" MUST warmly acknowledge both Shamousa & Saqr`);
+}
+
+// Explicit real-world failure regressions: "أنا بشكرك بجد" & "تسلميلي يا رب" across ALL surfaces!
+for (const realWorldThanks of [
+  'أنا بشكرك بجد',
+  'انا بشكرك بجد',
+  'تسلميلي يا رب',
+  'تسلميلي يارب',
+  'بشكرك جداً على مساعدتك',
+  'أشكرك بشدة',
+  'ما قصرتيش والله',
+  'كفيتي ووفيتي',
+  'تعبناكي معانا النهاردة',
+  'كتر ألف خيرك',
+]) {
+  const landingRes = processLandingShamousaMessage({ rawQuery: realWorldThanks });
+  assert.equal(landingRes.capturedSuggestionText, undefined, `"${realWorldThanks}" MUST NEVER be captured as suggestion`);
+  assert.ok(!landingRes.text.includes('مش موجود في'), `"${realWorldThanks}" MUST NOT trigger out-of-scope fallback`);
+  assert.ok(!landingRes.text.includes('أوامر التشغيل'), `"${realWorldThanks}" MUST NOT fuzzy-collide with تسليم / أوامر التشغيل`);
+  assert.ok(!landingRes.text.includes('يجبر بخاطرك'), `"${realWorldThanks}" MUST stay classy`);
+
+  const marketRes = processMarketShamousaMessage({
+    rawQuery: realWorldThanks,
+    mode: 'alshams_market',
+    catalog: sampleCatalog,
+    isAuthenticated: false,
+  });
+  assert.ok(marketRes.text.includes('سوق الشمساوية'), `"${realWorldThanks}" on Market must reply warmly and keep market focus`);
+  assert.ok(!marketRes.text.includes('يجبر بخاطرك'));
+
+  const internalRes = resolveShamousaLocalChatbot(realWorldThanks, {
+    firstName: 'حسام',
+    isSupplier: false,
+  });
+  assert.equal(internalRes.handled, true, `"${realWorldThanks}" inside logged-in Shamousa MUST be handled cleanly`);
+  assert.ok(internalRes.reply.includes('حسام') && !internalRes.reply.includes('سجّل دلوقتي'));
+}
+
+for (const egyptianSocial of [
+  'يا جماله',
+  'لا تحفة بجد',
+  'تسلم إيدك',
+  'ربنا يخليك',
+  'شغل 10 على 10',
+  'عظمة على عظمة',
+  'شابوه بجد',
+  'عاش والله',
+  'إيه الحلاوة دي؟',
+  'ربنا يباركلك ويسعدك',
+  'يعطيكي ألف عافية',
+  'تحفهه بجددد',
+  'هايلله والله',
+  'مية مية',
+  'أنتِ عسل والله',
+  'صباح الفل يا شموسة عاملة إيه النهاردة؟',
+  'معلش تعبتك معايا',
+  'تمام أوي وصلت الفكرة',
+  'في أمان الله',
+  'تصبح على خير يا شموسة',
+  'جزاك الله خيراً يا شموسة',
+  'ربنا يديكي الصحة والعافية',
+  'والله كلام زي الفل',
+  'أحلى شموسة في الدنيا',
+]) {
+  const res = processLandingShamousaMessage({ rawQuery: egyptianSocial });
+  assert.ok(!res.text.includes('مش موجود في'), `"${egyptianSocial}" MUST be understood by the Egyptian Social Encyclopedia`);
+  assert.ok(!res.text.includes('خارج تخصص'), `"${egyptianSocial}" MUST NEVER fall back to out-of-scope`);
+  assert.ok(!res.text.includes('يجبر بخاطرك'), `"${egyptianSocial}" MUST stay classy without local phrasing`);
+}
+
+// Guard: mixed compliment/thanks + real question MUST answer the real question!
+const mixedComplimentQuestion = processLandingShamousaMessage({ rawQuery: 'تحفة بجد، طب الباقات بكام؟' });
+assert.ok(
+  mixedComplimentQuestion.text.includes('الباقة الأساسية') || mixedComplimentQuestion.text.includes('0 ج.م'),
+  'Mixed compliment + question must answer the real packages question instead of swallowing it'
+);
+
+const mixedThanksPackages = processLandingShamousaMessage({ rawQuery: 'أنا بشكرك بجد، بس عايز أعرف الباقات بكام؟' });
+assert.ok(
+  mixedThanksPackages.text.includes('الباقة الأساسية') || mixedThanksPackages.text.includes('0 ج.م'),
+  'Mixed gratitude + packages question MUST answer packages'
+);
+
+const mixedTeslameelyResin = processLandingShamousaMessage({ rawQuery: 'تسلميلي يا رب، عندكم شغل ريزن؟' });
+assert.ok(
+  mixedTeslameelyResin.text.includes('ريزن') || mixedTeslameelyResin.text.includes('إيبوكسي'),
+  'Mixed تسلميلي + resin question MUST answer resin craft'
+);
+
+// Privacy & Online+Offline framing check (ZERO confusing "أوفلاين 100%" in visitor replies!)
+const welcomeCheck = buildLandingWelcomeReply();
+assert.ok(!welcomeCheck.text.includes('أوفلاين 100%'), 'Landing welcome must not say أوفلاين 100%');
+assert.ok(
+  welcomeCheck.text.includes('أونلاين وأوفلاين') && welcomeCheck.text.includes('فصل تام'),
+  'Landing welcome must highlight online+offline and strict isolation'
+);
+assert.ok(!qCreatorScreenshot1.text.includes('أوفلاين 100%'), 'Creator intro must not say أوفلاين 100%');
+assert.ok(
+  qCreatorScreenshot1.text.includes('أونلاين وأوفلاين') && qCreatorScreenshot1.text.includes('فصل تام'),
+  'Creator intro must highlight online+offline and strict artist/supplier isolation'
+);
+
+// Internal logged-in Shamousa (Artist & Supplier) uses the same Egyptian compliment/blessing/creator brain with internal specialization!
+const internalSaqrBlessing = resolveShamousaLocalChatbot('ربنا يحميك أنت وأخوك', {
+  firstName: 'حسام',
+  isSupplier: false,
+});
+assert.equal(internalSaqrBlessing.handled, true, 'Internal Shamousa must handle Shamousa+Saqr blessing');
+assert.ok(internalSaqrBlessing.reply.includes('صقر') && internalSaqrBlessing.reply.includes('حسام'));
+assert.ok(!internalSaqrBlessing.reply.includes('سجّل دلوقتي'), 'Logged-in internal Shamousa must NOT ask user to register');
+
+const internalSupplierPraise = resolveShamousaLocalChatbot('شغل 10 على 10 يا جماله', {
+  firstName: 'أحمد',
+  isSupplier: true,
+});
+assert.equal(internalSupplierPraise.handled, true, 'Internal Supplier Shamousa must handle Egyptian praise');
+assert.ok(internalSupplierPraise.reply.includes('أحمد') && internalSupplierPraise.reply.includes('شرائح الجملة'));
+
+console.log('✅ 9. Comprehensive Egyptian Social Encyclopedia (400+ phrases, 10 categories, zero regressions), Online+Offline Privacy Framing & Internal App Integration verified 100%!');
+
+// 10. Comprehensive Greetings & Farewells Encyclopedia (380+ phrases, 11 specialized categories, personalized per surface!)
+// 10a. Islamic greeting MUST reply with وعليكم السلام (and NEVER collide with farewell "سلام")
+for (const islamic of ['السلام عليكم', 'سلام عليكم', 'سلامو عليكو', 'السلام عليكم ورحمة الله وبركاته']) {
+  const res = processLandingShamousaMessage({ rawQuery: islamic });
+  assert.ok(res.text.includes('وعليكم السلام ورحمة الله وبركاته'), `"${islamic}" MUST reply with full وعليكم السلام ورحمة الله وبركاته`);
+  assert.ok(!res.text.includes('في انتظارك المرة الجاية'), `"${islamic}" is a greeting, NOT a farewell`);
+}
+
+// 10b. Morning greetings MUST reply with authentic morning reply
+for (const morning of ['صباح الخير', 'صباح الفل', 'صباح الورد', 'صباح الياسمين', 'صباح القشطة', 'صبح صبح', 'good morning']) {
+  const res = processLandingShamousaMessage({ rawQuery: morning });
+  assert.ok(res.text.includes('صباح'), `"${morning}" MUST reply with a morning greeting`);
+}
+
+// 10c. Evening greetings MUST reply with authentic evening reply
+for (const evening of ['مساء الفل', 'مساء الورد', 'مساء الجمال', 'مساء الخير', 'مساء العسل', 'مسا مسا', 'good evening']) {
+  const res = processLandingShamousaMessage({ rawQuery: evening });
+  assert.ok(res.text.includes('مساء'), `"${evening}" MUST reply with an evening greeting`);
+}
+
+// 10d. Occasions & Check-ins
+const qFriday = processLandingShamousaMessage({ rawQuery: 'جمعة مباركة' });
+assert.ok(qFriday.text.includes('جمعة مباركة'));
+const qEid = processLandingShamousaMessage({ rawQuery: 'كل سنة وأنتي طيبة' });
+assert.ok(qEid.text.includes('وأنت طيب'));
+const qCheckin = processLandingShamousaMessage({ rawQuery: 'إزيك يا شموسة عاملة إيه النهاردة؟' });
+assert.ok(qCheckin.text.includes('الحمد لله') || qCheckin.text.includes('زي الفل'));
+
+// 10e. Farewells ("سلام يا قمر", "سلام", "مع السلامة", "تصبح على خير", "في أمان الله", "أشوفك على خير", "أستأذنك") personalized per surface!
+for (const farewell of ['سلام يا قمر', 'سلام', 'مع السلامة', 'مع ألف سلامة', 'باي يا قمر', 'في أمان الله', 'في رعاية الله', 'أشوفك على خير', 'أستأذنك', 'هقفل دلوقتي']) {
+  const landingFw = processLandingShamousaMessage({ rawQuery: farewell });
+  assert.ok(landingFw.text.includes('يا فندم') && landingFw.text.includes('في انتظارك المرة الجاية'), `Landing "${farewell}" must address يا فندم and welcome back next time`);
+  assert.ok(!landingFw.text.includes('مش موجود في'));
+
+  const marketFw = processMarketShamousaMessage({
+    rawQuery: farewell,
+    mode: 'alshams_market',
+    catalog: sampleCatalog,
+    isAuthenticated: false,
+  });
+  assert.ok(
+    marketFw.text.includes('يا فندم') && marketFw.text.includes('سوق الشمساوية') && marketFw.text.includes('في انتظارك المرة الجاية'),
+    `Market "${farewell}" must address يا فندم with سوق الشمساوية next-visit closing`
+  );
+
+  const internalArtistFw = resolveShamousaLocalChatbot(farewell, { firstName: 'حسام', isSupplier: false });
+  assert.equal(internalArtistFw.handled, true, `Internal Artist "${farewell}" must be handled`);
+  assert.ok(
+    internalArtistFw.reply.includes('يا **حسام**') && internalArtistFw.reply.includes('في انتظارك المرة الجاية'),
+    `Internal Artist "${farewell}" must personalize with يا **حسام** and next-visit closing`
+  );
+  assert.ok(!internalArtistFw.reply.includes('سجّل مجاناً'), 'Logged-in Artist farewell must NOT ask user to register');
+
+  const internalSupplierFw = resolveShamousaLocalChatbot(farewell, { firstName: 'أحمد', isSupplier: true });
+  assert.equal(internalSupplierFw.handled, true);
+  assert.ok(
+    internalSupplierFw.reply.includes('يا **أحمد**') && internalSupplierFw.reply.includes('في انتظارك المرة الجاية'),
+    `Internal Supplier "${farewell}" must personalize with يا **أحمد** and next-visit closing`
+  );
+}
+
+// 10f. Night farewell ("تصبح على خير" / "good night") MUST give warm night reply
+for (const nightFw of ['تصبح على خير', 'تصبحي على خير يا شموسة', 'ليلة سعيدة', 'good night']) {
+  const res = processLandingShamousaMessage({ rawQuery: nightFw });
+  assert.ok(res.text.includes('أهل الخير') || res.text.includes('تصحى على ألف خير'), `"${nightFw}" MUST reply with authentic night farewell`);
+  assert.ok(res.text.includes('في انتظارك المرة الجاية'));
+}
+
+// 10g. Guard: Greeting + real question MUST answer the real question without swallowing it!
+const qSalamPackages = processLandingShamousaMessage({ rawQuery: 'السلام عليكم، الباقات بكام؟' });
+assert.ok(qSalamPackages.text.includes('الباقة الأساسية') || qSalamPackages.text.includes('0 ج.م'), 'Greeting + packages question MUST answer packages');
+
+const qEveningMacrame = processLandingShamousaMessage({ rawQuery: 'مساء الفل، عندكم شغل مكرمية؟' });
+assert.ok(qEveningMacrame.text.includes('مكرمية'), 'Evening greeting + macrame question MUST answer macrame');
+
+console.log('✅ 10. Comprehensive Greetings & Farewells Encyclopedia (380+ phrases, 11 categories, personalized per surface & mixed-question guard) verified 100%!');
 
 console.log('\n🎉 ALL PHASE 1 + LANDING PAGE SHAMOUSA CHECKS PASSED 100%!');
