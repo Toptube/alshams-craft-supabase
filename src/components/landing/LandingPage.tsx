@@ -111,7 +111,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setStoredPublicLocale(next);
   };
 
-  const [isWelcomeGateOpen, setIsWelcomeGateOpen] = useState(false);
+  const [isWelcomeGateOpen, setIsWelcomeGateOpen] = useState<boolean>(() => {
+    if (isPreview) return false;
+    try {
+      return sessionStorage.getItem('alshams_welcome_gate_session_done') !== 'true';
+    } catch {
+      return true;
+    }
+  });
   const [isSystemsDrawerOpen, setIsSystemsDrawerOpen] = useState(false);
   const [liveCms, setLiveCms] = useState<LandingCmsConfig>(() => getStoredLandingCmsConfig());
   const flags = useFeatureFlags();
@@ -640,13 +647,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       : 'من أول جرام خامة حتى استلام العميل وتحصيل الربح الصافي'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsWelcomeGateOpen(true)}
-                  className="px-3.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 backdrop-blur-xs text-white text-xs font-black cursor-pointer transition"
-                >
-                  {isEn ? 'Welcome Gate' : 'بوابة الترحيب'}
-                </button>
               </div>
             </motion.div>
           </div>
@@ -1140,15 +1140,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         onOpenSuppliersMarket={flags.suppliersMarketplaceEnabled ? onOpenSuppliersMarket : undefined}
       />
 
-      {/* Welcome Gate Modal */}
+      {/* البوابة الترحيبية الافتتاحية (تفتح تلقائياً عند فتح الرابط الأساسي وتشغّل النشيد واحتفالية الهدايا والكونفيتي) */}
       <AlShamsWelcomeGate
         isOpen={isWelcomeGateOpen}
         isEn={isEn}
         onEnter={() => {
-          setIsWelcomeGateOpen(false);
+          try {
+            sessionStorage.setItem('alshams_welcome_gate_session_done', 'true');
+          } catch {}
           audioPlayerRef.current?.playTrack().catch(() => {});
         }}
-        onClose={() => setIsWelcomeGateOpen(false)}
+        onClose={() => {
+          try {
+            sessionStorage.setItem('alshams_welcome_gate_session_done', 'true');
+          } catch {}
+          setIsWelcomeGateOpen(false);
+        }}
       />
 
       {/* Community Feedback Modal */}

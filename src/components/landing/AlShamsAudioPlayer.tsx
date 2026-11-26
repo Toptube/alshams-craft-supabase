@@ -102,7 +102,7 @@ export const AlShamsAudioPlayer = forwardRef<AlShamsAudioPlayerHandle, AlShamsAu
     if (variant === 'header_icon') {
       return (
         <div className={`inline-flex items-center shrink-0 ${className}`}>
-          <audio ref={audioRef} src={anthemUrl} preload="none" />
+          <audio ref={audioRef} src={anthemUrl} preload="auto" />
           <button
             type="button"
             onClick={togglePlay}
@@ -125,7 +125,7 @@ export const AlShamsAudioPlayer = forwardRef<AlShamsAudioPlayerHandle, AlShamsAu
 
     return (
       <div className={`relative inline-flex items-center ${className}`} dir="rtl">
-        <audio ref={audioRef} src={anthemUrl} preload="none" />
+        <audio ref={audioRef} src={anthemUrl} preload="auto" />
 
         <button
           type="button"

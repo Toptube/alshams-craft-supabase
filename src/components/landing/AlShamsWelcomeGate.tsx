@@ -91,6 +91,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
         colors: ['#f59e0b', '#fbbf24', '#0284c7', '#0369a1', '#10b981', '#f43f5e', '#ffffff'],
         scalar: 1.25,
         ticks: 220,
+        zIndex: 250,
       });
 
       // مدافع جانبية للزينة والبهجة بعد 300ms
@@ -102,6 +103,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
           startVelocity: 50,
           origin: { x: 0.15, y: 0.85 },
           colors: ['#f59e0b', '#fbbf24', '#ffffff', '#10b981'],
+          zIndex: 250,
         });
         confetti({
           particleCount: 50,
@@ -110,6 +112,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
           startVelocity: 50,
           origin: { x: 0.85, y: 0.85 },
           colors: ['#f59e0b', '#fbbf24', '#ffffff', '#0284c7'],
+          zIndex: 250,
         });
       }, 300);
 
@@ -122,6 +125,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
           origin: { y: 0.75, x: 0.5 },
           shapes: ['circle'],
           colors: ['#ffd700', '#ffa500', '#ffffff'],
+          zIndex: 250,
         });
       }, 700);
     } catch (err) {
@@ -132,7 +136,12 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
   if (phase === 'hidden') return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden flex items-center justify-center" dir={isEn ? 'ltr' : 'rtl'}>
+    <div
+      className={`fixed inset-0 z-[200] overflow-hidden flex items-center justify-center ${
+        phase === 'gifting' ? 'pointer-events-none' : ''
+      }`}
+      dir={isEn ? 'ltr' : 'rtl'}
+    >
       
       {/* ------------------------------------------------------------- */}
       {/* Phase 1: Welcome Modal (بوابة الاستقبال الحرفية الفاخرة)       */}
