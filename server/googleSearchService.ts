@@ -671,7 +671,7 @@ function findNestedMediaString(obj: any, kind: 'image' | 'video', depth = 0): { 
 
 export async function callTaygosGatewayImage(opts: {
   prompt: string;
-  task?: 'generate' | 'edit' | 'remove_background';
+  task?: 'generate' | 'bg_edit' | 'edit' | 'remove_bg' | 'remove_background';
   image?: string;
   width?: number;
   height?: number;
@@ -687,17 +687,17 @@ export async function callTaygosGatewayImage(opts: {
   }
   const headers = buildTaygosHeaderVariants(apiKey, publicKey, secretKey)[0];
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30000);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 26000);
   try {
+    const task = opts.task || 'generate';
     const payload: Record<string, any> = {
-      task: opts.task || 'generate',
+      task,
       prompt: opts.prompt,
-      width: opts.width ?? 1024,
-      height: opts.height ?? 1024,
+      width: opts.width ?? 512,
+      height: opts.height ?? 512,
     };
-    if (opts.image) {
+    if (opts.image && task !== 'generate') {
       payload.image = opts.image;
-      payload.image_url = opts.image;
     }
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -707,11 +707,24 @@ export async function callTaygosGatewayImage(opts: {
     });
     const rawText = await res.text().catch(() => '');
     if (!res.ok) {
+      let friendlySummary = '';
+      try {
+        const parsedErr: any = JSON.parse(rawText);
+        if (Array.isArray(parsedErr?.attempts) && parsedErr.attempts.length > 0) {
+          const allBusyOrQuota = parsedErr.attempts.every((a: any) =>
+            [402, 404, 410, 429, 502, 503, 504].includes(Number(a?.statusCode || 0))
+          );
+          if (allBusyOrQuota) {
+            friendlySummary =
+              'طابور مزودي الصور المجانيين داخل بوابة Taygos مزدحم مؤقتاً الآن (ضغط على HuggingFace / Pollinations)';
+          }
+        }
+      } catch {}
       const detail = extractSanitizedErrorDetail(rawText);
       return {
         ok: false,
         statusCode: res.status,
-        summary: formatAiErrorReason(detail || `HTTP ${res.status}`),
+        summary: friendlySummary || formatAiErrorReason(detail || `HTTP ${res.status}`),
         detail: detail || `HTTP ${res.status}`,
       };
     }

@@ -577,6 +577,280 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     }
   };
 
+  const renderStudioProductComposite = async (
+    productDataUrl: string,
+    mode: 'store' | 'workshop' | 'home',
+    aiBackdropUrl?: string
+  ): Promise<string | null> => {
+    try {
+      const loadImg = (src: string) =>
+        new Promise<HTMLImageElement>((resolve, reject) => {
+          const el = new Image();
+          el.crossOrigin = 'anonymous';
+          el.onload = () => resolve(el);
+          el.onerror = () => reject(new Error('img_load_err'));
+          el.src = src;
+        });
+
+      const prodImg = await loadImg(productDataUrl);
+      const size = 1024;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      // 1) Draw backdrop: AI-generated Taygos scene if available, otherwise rich studio-grade procedural backdrop
+      let drewAiBackdrop = false;
+      if (aiBackdropUrl) {
+        try {
+          const bgImg = await loadImg(aiBackdropUrl);
+          const scale = Math.max(size / (bgImg.naturalWidth || size), size / (bgImg.naturalHeight || size));
+          const dw = (bgImg.naturalWidth || size) * scale;
+          const dh = (bgImg.naturalHeight || size) * scale;
+          ctx.drawImage(bgImg, (size - dw) / 2, (size - dh) / 2, dw, dh);
+          drewAiBackdrop = true;
+        } catch {}
+      }
+
+      if (!drewAiBackdrop) {
+        if (mode === 'store') {
+          // Luxury minimalist cream & marble commercial e-commerce studio
+          const wallGrad = ctx.createRadialGradient(size * 0.5, size * 0.32, 60, size * 0.5, size * 0.45, size * 0.8);
+          wallGrad.addColorStop(0, '#FFFDF9');
+          wallGrad.addColorStop(0.55, '#F5EFE6');
+          wallGrad.addColorStop(1, '#E6DACA');
+          ctx.fillStyle = wallGrad;
+          ctx.fillRect(0, 0, size, size);
+
+          // Marble studio tabletop surface
+          const tableY = Math.round(size * 0.68);
+          const tableGrad = ctx.createLinearGradient(0, tableY, 0, size);
+          tableGrad.addColorStop(0, '#FBF7F0');
+          tableGrad.addColorStop(0.35, '#EFE6D8');
+          tableGrad.addColorStop(1, '#DECDB6');
+          ctx.fillStyle = tableGrad;
+          ctx.fillRect(0, tableY, size, size - tableY);
+
+          // Soft horizon line + marble pedestal oval
+          ctx.fillStyle = 'rgba(130, 108, 82, 0.14)';
+          ctx.fillRect(0, tableY, size, 2);
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.ellipse(size * 0.5, size * 0.79, size * 0.34, size * 0.085, 0, 0, Math.PI * 2);
+          const pedGrad = ctx.createLinearGradient(size * 0.16, size * 0.72, size * 0.84, size * 0.88);
+          pedGrad.addColorStop(0, '#FFFFFF');
+          pedGrad.addColorStop(0.5, '#F4EDE2');
+          pedGrad.addColorStop(1, '#E2D4C0');
+          ctx.fillStyle = pedGrad;
+          ctx.shadowColor = 'rgba(60, 42, 22, 0.16)';
+          ctx.shadowBlur = 28;
+          ctx.shadowOffsetY = 12;
+          ctx.fill();
+          ctx.restore();
+        } else if (mode === 'workshop') {
+          // Warm sunlit artisan craft workshop
+          const wallGrad = ctx.createLinearGradient(0, 0, size, size * 0.7);
+          wallGrad.addColorStop(0, '#F4E8D5');
+          wallGrad.addColorStop(0.5, '#E7D5BC');
+          wallGrad.addColorStop(1, '#D3B895');
+          ctx.fillStyle = wallGrad;
+          ctx.fillRect(0, 0, size, size);
+
+          // Sunlit window beam glow from top-right
+          const sunGrad = ctx.createRadialGradient(size * 0.82, size * 0.14, 30, size * 0.75, size * 0.25, size * 0.65);
+          sunGrad.addColorStop(0, 'rgba(255, 248, 226, 0.72)');
+          sunGrad.addColorStop(0.5, 'rgba(255, 238, 198, 0.22)');
+          sunGrad.addColorStop(1, 'rgba(255, 238, 198, 0)');
+          ctx.fillStyle = sunGrad;
+          ctx.fillRect(0, 0, size, size);
+
+          // Oak wood craft workbench surface
+          const tableY = Math.round(size * 0.66);
+          const woodGrad = ctx.createLinearGradient(0, tableY, 0, size);
+          woodGrad.addColorStop(0, '#C79B6B');
+          woodGrad.addColorStop(0.45, '#B28252');
+          woodGrad.addColorStop(1, '#8C5F35');
+          ctx.fillStyle = woodGrad;
+          ctx.fillRect(0, tableY, size, size - tableY);
+
+          // Subtle natural wood grain lines
+          ctx.strokeStyle = 'rgba(72, 42, 18, 0.12)';
+          ctx.lineWidth = 2;
+          for (let y = tableY + 12; y < size; y += 18) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.bezierCurveTo(size * 0.33, y - 4, size * 0.66, y + 4, size, y - 1);
+            ctx.stroke();
+          }
+        } else {
+          // Cozy sunlit Mediterranean home living room vignette
+          const wallGrad = ctx.createLinearGradient(0, 0, 0, size * 0.7);
+          wallGrad.addColorStop(0, '#F7EFE4');
+          wallGrad.addColorStop(0.6, '#ECE0CE');
+          wallGrad.addColorStop(1, '#DCCAB1');
+          ctx.fillStyle = wallGrad;
+          ctx.fillRect(0, 0, size, size);
+
+          // Warm golden afternoon sunbeam
+          const rayGrad = ctx.createLinearGradient(size * 0.9, 0, size * 0.2, size * 0.75);
+          rayGrad.addColorStop(0, 'rgba(255, 246, 218, 0.58)');
+          rayGrad.addColorStop(0.55, 'rgba(255, 236, 196, 0.18)');
+          rayGrad.addColorStop(1, 'rgba(255, 236, 196, 0)');
+          ctx.fillStyle = rayGrad;
+          ctx.fillRect(0, 0, size, size);
+
+          // Natural linen/travertine living room console table
+          const tableY = Math.round(size * 0.69);
+          const homeTableGrad = ctx.createLinearGradient(0, tableY, 0, size);
+          homeTableGrad.addColorStop(0, '#E8DAC6');
+          homeTableGrad.addColorStop(0.5, '#D7C3A8');
+          homeTableGrad.addColorStop(1, '#BFA482');
+          ctx.fillStyle = homeTableGrad;
+          ctx.fillRect(0, tableY, size, size - tableY);
+          ctx.fillStyle = 'rgba(92, 70, 48, 0.16)';
+          ctx.fillRect(0, tableY, size, 3);
+        }
+      }
+
+      // 2) Prepare product layer with smart uniform-background edge cutout (preserving intricate handmade details)
+      const maxProdDim = 760;
+      const pScale = Math.min(1, maxProdDim / Math.max(prodImg.naturalWidth || 1, prodImg.naturalHeight || 1));
+      const pw = Math.max(32, Math.round((prodImg.naturalWidth || maxProdDim) * pScale));
+      const ph = Math.max(32, Math.round((prodImg.naturalHeight || maxProdDim) * pScale));
+      const pCanvas = document.createElement('canvas');
+      pCanvas.width = pw;
+      pCanvas.height = ph;
+      const pCtx = pCanvas.getContext('2d', { willReadFrequently: true });
+      if (!pCtx) return null;
+      pCtx.drawImage(prodImg, 0, 0, pw, ph);
+
+      let bgRemoved = false;
+      try {
+        const imgData = pCtx.getImageData(0, 0, pw, ph);
+        const d = imgData.data;
+        const corners = [0, (pw - 1) * 4, (ph - 1) * pw * 4, ((ph - 1) * pw + (pw - 1)) * 4];
+        let rRef = 0;
+        let gRef = 0;
+        let bRef = 0;
+        for (const idx of corners) {
+          rRef += d[idx];
+          gRef += d[idx + 1];
+          bRef += d[idx + 2];
+        }
+        rRef /= 4;
+        gRef /= 4;
+        bRef /= 4;
+        let maxDiff = 0;
+        for (const idx of corners) {
+          maxDiff = Math.max(maxDiff, Math.hypot(d[idx] - rRef, d[idx + 1] - gRef, d[idx + 2] - bRef));
+        }
+        // Only apply flood-fill cutout when corners are reasonably uniform (prevents damaging busy photos)
+        const tol = 44;
+        if (maxDiff < tol * 1.85) {
+          const total = pw * ph;
+          const visited = new Uint8Array(total);
+          const stack = new Int32Array(total);
+          let sp = 0;
+          const tryPush = (x: number, y: number) => {
+            if (x < 0 || x >= pw || y < 0 || y >= ph) return;
+            const i = y * pw + x;
+            if (visited[i]) return;
+            const o = i * 4;
+            if (Math.hypot(d[o] - rRef, d[o + 1] - gRef, d[o + 2] - bRef) <= tol) {
+              visited[i] = 1;
+              stack[sp++] = i;
+            }
+          };
+          for (let x = 0; x < pw; x++) {
+            tryPush(x, 0);
+            tryPush(x, ph - 1);
+          }
+          for (let y = 0; y < ph; y++) {
+            tryPush(0, y);
+            tryPush(pw - 1, y);
+          }
+          let cleared = 0;
+          while (sp > 0) {
+            const idx = stack[--sp];
+            d[idx * 4 + 3] = 0;
+            cleared++;
+            const x = idx % pw;
+            const y = Math.floor(idx / pw);
+            tryPush(x + 1, y);
+            tryPush(x - 1, y);
+            tryPush(x, y + 1);
+            tryPush(x, y - 1);
+          }
+          if (cleared > total * 0.05 && cleared < total * 0.88) {
+            pCtx.putImageData(imgData, 0, 0);
+            bgRemoved = true;
+          }
+        }
+      } catch {}
+
+      // 3) Fit & place product harmoniously onto the studio stage with realistic contact shadow
+      const targetBox = bgRemoved ? size * 0.66 : size * 0.68;
+      const fitScale = Math.min(targetBox / pw, targetBox / ph);
+      const drawW = Math.round(pw * fitScale);
+      const drawH = Math.round(ph * fitScale);
+      const drawX = Math.round((size - drawW) / 2);
+      const drawY = Math.round(size * 0.79 - drawH);
+
+      // Ground contact shadow
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(size * 0.5, drawY + drawH - 8, drawW * 0.42, Math.max(18, drawH * 0.055), 0, 0, Math.PI * 2);
+      const shGrad = ctx.createRadialGradient(
+        size * 0.5,
+        drawY + drawH - 8,
+        10,
+        size * 0.5,
+        drawY + drawH - 8,
+        drawW * 0.45
+      );
+      shGrad.addColorStop(0, 'rgba(38, 24, 10, 0.36)');
+      shGrad.addColorStop(0.6, 'rgba(38, 24, 10, 0.14)');
+      shGrad.addColorStop(1, 'rgba(38, 24, 10, 0)');
+      ctx.fillStyle = shGrad;
+      ctx.fill();
+      ctx.restore();
+
+      if (bgRemoved) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(30, 20, 10, 0.22)';
+        ctx.shadowBlur = 24;
+        ctx.shadowOffsetY = 10;
+        ctx.drawImage(pCanvas, drawX, drawY, drawW, drawH);
+        ctx.restore();
+      } else {
+        // Framed gallery studio presentation for photos with complex natural backgrounds
+        const radius = 28;
+        ctx.save();
+        ctx.shadowColor = 'rgba(30, 20, 10, 0.28)';
+        ctx.shadowBlur = 34;
+        ctx.shadowOffsetY = 14;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.roundRect(drawX - 10, drawY - 10, drawW + 20, drawH + 20, radius + 6);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(drawX, drawY, drawW, drawH, radius);
+        ctx.clip();
+        ctx.drawImage(pCanvas, drawX, drawY, drawW, drawH);
+        ctx.restore();
+      }
+
+      return canvas.toDataURL('image/png', 0.93);
+    } catch {
+      return null;
+    }
+  };
+
   const runFalconStudioGeneration = async (
     mode: 'store' | 'workshop' | 'home',
     overrideAttachment?: { base64: string; mimeType: string; name: string } | null,
@@ -623,33 +897,55 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     setStudioLoadingLabel(`استوديو صقر يجهّز صورتك (${modeTitle}) الآن...`);
 
     try {
-      const resp = await authedFetch('/api/ai/falcon-studio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mode,
-          imageBase64: activeAttachment?.base64,
-          mimeType: activeAttachment?.mimeType,
-          userPrompt: activeText,
-          workshopContext: {
-            selectedCrafts: (profile as any).selectedCrafts || ((profile as any).category ? [(profile as any).category] : []),
-            category: (profile as any).category || (profile as any).craftCategory || '',
-            brandName: (profile as any).workshopName || profile.brandName,
-            artistName: (profile as any).fullName || profile.artistName,
-            accountRole: isSupplierAccount ? 'supplier' : 'artisan',
-            country: profile.country || 'مصر',
-          },
-        }),
-      });
+      const resp = await falconFetch(
+        '/api/ai/falcon-studio',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode,
+            imageBase64: activeAttachment?.base64,
+            mimeType: activeAttachment?.mimeType,
+            userPrompt: activeText,
+            workshopContext: {
+              selectedCrafts: (profile as any).selectedCrafts || ((profile as any).category ? [(profile as any).category] : []),
+              category: (profile as any).category || (profile as any).craftCategory || '',
+              brandName: (profile as any).workshopName || profile.brandName,
+              artistName: (profile as any).fullName || profile.artistName,
+              accountRole: isSupplierAccount ? 'supplier' : 'artisan',
+              country: profile.country || 'مصر',
+            },
+          }),
+        },
+        55000
+      );
 
       const data = await resp.json().catch(() => ({}));
       if (typeof data?.remaining === 'number') {
         setDailyRemaining(data.remaining);
       }
 
-      if (!resp.ok || !data?.ok || !data?.imageDataUrl) {
+      let finalStudioImg: string | null = null;
+      if (resp.ok && data?.ok) {
+        if (activeAttachment && data.compositeUploadedProduct && data.imageDataUrl) {
+          finalStudioImg =
+            (await renderStudioProductComposite(activeAttachment.base64, mode, data.imageDataUrl)) ||
+            data.imageDataUrl;
+        } else if (activeAttachment && data.fallbackToLocalStudio) {
+          finalStudioImg = await renderStudioProductComposite(activeAttachment.base64, mode);
+        } else if (data.imageDataUrl) {
+          finalStudioImg = data.imageDataUrl;
+        }
+      } else if (activeAttachment) {
+        // Ultimate resilience: if network/upstream returned 502 while user uploaded a real product photo, render seamlessly locally
+        finalStudioImg = await renderStudioProductComposite(activeAttachment.base64, mode);
+      }
+
+      if (!finalStudioImg) {
         const errMsg =
-          data?.message || data?.error || `تعذر تجهيز صورة الاستوديو (${modeTitle}) حالياً. حاول مرة أخرى بعد لحظات.`;
+          data?.message ||
+          data?.error ||
+          `مزودو توليد الصور المجانيون في Taygos مشغولون مؤقتاً — ارفع صورة منتجك 📎 وهجهّزها لك فوراً في الاستوديو.`;
         setMessages((prev) => [
           ...prev,
           {
@@ -659,13 +955,12 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
             timestamp: Date.now(),
           },
         ]);
-        showFeedback('تعذر تجهيز الصورة حالياً — جرّب مرة تانية');
+        showFeedback('مزودو الصور السحابيون مزدحمون مؤقتاً — أرفق صورة منتجك للتجهيز الفوري');
         return;
       }
 
-      const rawImg: string = data.imageDataUrl;
       const branding = getWorkshopBranding();
-      const brandedImg = await composeStudioBrandedImage(rawImg, branding);
+      const brandedImg = await composeStudioBrandedImage(finalStudioImg, branding);
 
       setMessages((prev) => [
         ...prev,
@@ -673,12 +968,12 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           id: 'falcon_studio_ok_' + Date.now(),
           sender: 'falcon',
           text:
-            data.message ||
+            data?.message ||
             `✨ تم تجهيز صورة منتجك بنجاح في وضع (${modeTitle})! يمكنك تحميلها الآن أو إضافة تذييل ورشتك.`,
           timestamp: Date.now(),
           metadata: {
-            studioImage: rawImg,
-            studioRawImage: rawImg,
+            studioImage: finalStudioImg,
+            studioRawImage: finalStudioImg,
             studioBrandedImage: brandedImg || undefined,
             studioFooterEnabled: false,
             studioMode: mode,
@@ -686,17 +981,44 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         },
       ]);
       showFeedback(`✨ تم تجهيز صورة الاستوديو (${modeTitle}) بنجاح!`);
-    } catch {
+    } catch (err: any) {
+      // If user uploaded a real photo and the network call timed out, still deliver via built-in studio compositor!
+      if (activeAttachment) {
+        const localFallback = await renderStudioProductComposite(activeAttachment.base64, mode);
+        if (localFallback) {
+          const branding = getWorkshopBranding();
+          const brandedImg = await composeStudioBrandedImage(localFallback, branding);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: 'falcon_studio_local_' + Date.now(),
+              sender: 'falcon',
+              text: `✨ **استوديو صقر (${modeTitle})**\nتم تجهيز صورة منتجك فوراً عبر الاستوديو المدمج (نظراً لبطء الاستجابة المؤقت من السحابة).\nتقدر تحمّل الصورة أو تضيف تذييل ورشتك بضغطة واحدة 👇`,
+              timestamp: Date.now(),
+              metadata: {
+                studioImage: localFallback,
+                studioRawImage: localFallback,
+                studioBrandedImage: brandedImg || undefined,
+                studioFooterEnabled: false,
+                studioMode: mode,
+              },
+            },
+          ]);
+          showFeedback(`✨ تم تجهيز صورة الاستوديو (${modeTitle}) بنجاح!`);
+          return;
+        }
+      }
+
       setMessages((prev) => [
         ...prev,
         {
           id: 'falcon_studio_neterr_' + Date.now(),
           sender: 'falcon',
-          text: '⚠️ حدث انقطاع مؤقت أثناء تجهيز صورة الاستوديو — يرجى المحاولة مرة أخرى.',
+          text: `⚠️ ${err?.message || 'مزودو توليد الصور المجانيون مشغولون مؤقتاً — جرّب مرة تانية أو أرفق صورة منتجك للتجهيز الفوري.'}`,
           timestamp: Date.now(),
         },
       ]);
-      showFeedback('تعذر الاتصال باستوديو الصور حالياً');
+      showFeedback('جرّب إرفاق صورة منتجك للتجهيز الفوري في الاستوديو');
     } finally {
       setIsGeneratingStudio(false);
       setStudioLoadingLabel('');

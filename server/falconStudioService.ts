@@ -1,6 +1,6 @@
 // ==============================================================================
 // استوديو صور المنتجات لصقر الشمساوية — يعمل مباشرة عبر بوابة Taygos للصور
-// يدعم الأوضاع الثلاثة: للمتجر (store) / في ورشتي (workshop) / في منزل (home)
+// مع دعم الأوضاع الثلاثة (للمتجر / في ورشتي / في منزل) + دمج ذكي للمنتج المرفوع
 // ==============================================================================
 
 import {
@@ -34,6 +34,10 @@ export interface FalconStudioResult {
   mimeType?: string;
   provider?: string;
   model?: string;
+  /** When true, the returned imageDataUrl is an AI-generated empty studio backdrop and client should composite the user's real uploaded product onto it */
+  compositeUploadedProduct?: boolean;
+  /** When true, all cloud image queues inside Taygos were temporarily busy (502/503) and client should render the uploaded product on the built-in local studio backdrop */
+  fallbackToLocalStudio?: boolean;
   message: string;
 }
 
@@ -56,22 +60,31 @@ const MODE_LABELS_AR: Record<FalconStudioMode, string> = {
   home: 'في منزل (ديكور منزلي دافئ)',
 };
 
-const MODE_SCENE_PROMPTS: Record<FalconStudioMode, string> = {
+// Concise, high-hit-rate prompts (kept under ~180 chars so fast free models like FLUX-schnell & Pollinations never drop/502)
+const MODE_SUBJECT_PROMPTS: Record<FalconStudioMode, string> = {
   store:
-    'Clean luxury commercial e-commerce product photography, centered on a refined warm travertine and off-white marble studio pedestal, crisp softbox lighting, subtle natural contact shadow, minimalist neutral cream backdrop, ultra-sharp handmade texture detail, catalog hero shot, 8k photographic realism, no text, no watermark.',
+    'on white marble studio pedestal, softbox commercial product photography, cream minimalist background, crisp shadow, photorealistic',
   workshop:
-    'Warm authentic artisan craft workshop photography, placed naturally on a sunlit light oak wooden craft table, soft out-of-focus handmade tools, cotton yarn spools and linen cloth softly blurred in the background, golden natural window light, rich tactile craft textures, editorial handmade brand look, 8k photographic realism, no text, no watermark.',
+    'on sunlit oak wood artisan workbench, soft blurred handmade craft tools and linen background, warm natural window light, photorealistic',
   home:
-    'Cozy modern sunlit living room lifestyle interior photography, styled tastefully on a natural wood coffee table or woven linen console in a warm beige Mediterranean home, soft afternoon sunlight, gentle bokeh plants and neutral decor, inviting editorial lifestyle shot, 8k photographic realism, no text, no watermark.',
+    'styled on natural wood coffee table in cozy sunlit beige Mediterranean living room, warm afternoon daylight, interior lifestyle photo',
+};
+
+const MODE_EMPTY_BACKDROP_PROMPTS: Record<FalconStudioMode, string> = {
+  store:
+    'Empty minimalist white marble studio pedestal on warm cream backdrop, softbox lighting, product display stage, no objects, photorealistic',
+  workshop:
+    'Empty sunlit light oak wooden craft workshop table in foreground, soft blurred cozy artisan shelves in background, warm daylight, no center object',
+  home:
+    'Empty natural wood coffee table in cozy sunlit beige living room, soft afternoon sunbeams, blurred linen sofa background, no center object',
 };
 
 async function enrichPromptToVisualEnglish(rawPrompt: string, craftHint: string): Promise<string> {
-  const cleaned = rawPrompt.trim().slice(0, 500);
+  const cleaned = rawPrompt.trim().slice(0, 350);
   if (!cleaned) return craftHint || 'handmade artisan craft product';
 
-  // If already primarily ASCII English, keep directly without extra round-trip
   const hasArabic = /[\u0600-\u06FF]/.test(cleaned);
-  if (!hasArabic) return cleaned;
+  if (!hasArabic) return cleaned.slice(0, 140);
 
   try {
     const translated = await callTaygosGatewayChat(
@@ -79,26 +92,26 @@ async function enrichPromptToVisualEnglish(rawPrompt: string, craftHint: string)
         {
           role: 'system',
           content:
-            'Translate this Arabic handmade craft product description into a concise, vivid English visual subject phrase (max 28 words) suitable for a product photography prompt. Return ONLY the English phrase with no quotes or extra words.',
+            'Translate this Arabic handmade craft product into a concise English visual phrase (max 16 words) for product photography. Return ONLY the English phrase.',
         },
         {
           role: 'user',
-          content: craftHint ? `${cleaned} (Craft: ${craftHint})` : cleaned,
+          content: craftHint ? `${cleaned} (${craftHint})` : cleaned,
         },
       ],
-      { temperature: 0.2, maxTokens: 70, timeoutMs: 7000 }
+      { temperature: 0.2, maxTokens: 45, timeoutMs: 5500 }
     );
     const trimmed = String(translated || '')
       .replace(/^["'`]+|["'`]+$/g, '')
       .replace(/\s+/g, ' ')
       .trim();
-    if (trimmed && trimmed.length >= 4 && !/[\u0600-\u06FF]/.test(trimmed)) {
-      return trimmed.slice(0, 260);
+    if (trimmed && trimmed.length >= 3 && !/[\u0600-\u06FF]/.test(trimmed)) {
+      return trimmed.slice(0, 140);
     }
   } catch {
     // Graceful fallback below
   }
-  return craftHint ? `${craftHint}, handmade artisan piece (${cleaned})` : `handmade artisan craft piece (${cleaned})`;
+  return craftHint ? `${craftHint} handmade piece` : 'Egyptian handmade artisan craft product';
 }
 
 function normalizeImageDataUri(rawBase64?: string, rawMime?: string): string | undefined {
@@ -123,6 +136,16 @@ function normalizeImageDataUri(rawBase64?: string, rawMime?: string): string | u
   return `data:${safeMime};base64,${cleanB64}`;
 }
 
+function extractImageDataUrl(res: { imageUrl?: string; imageBase64?: string; mimeType?: string }): string {
+  if (res.imageUrl && (res.imageUrl.startsWith('data:image/') || res.imageUrl.startsWith('https://'))) {
+    return res.imageUrl;
+  }
+  if (res.imageBase64) {
+    return `data:${res.mimeType || 'image/png'};base64,${res.imageBase64}`;
+  }
+  return '';
+}
+
 export async function generateFalconStudioImage(
   input: FalconStudioInput
 ): Promise<FalconStudioResult> {
@@ -141,72 +164,12 @@ export async function generateFalconStudioImage(
     };
   }
 
-  const safeUserPrompt = String(input.userPrompt || '').trim().slice(0, 500);
+  const safeUserPrompt = String(input.userPrompt || '').trim().slice(0, 350);
   const craftList = Array.isArray(input.workshopContext?.selectedCrafts)
-    ? input.workshopContext?.selectedCrafts.filter(Boolean).slice(0, 3).join(', ')
+    ? input.workshopContext?.selectedCrafts.filter(Boolean).slice(0, 2).join(', ')
     : '';
-  const craftHint = [input.workshopContext?.category, craftList].filter(Boolean).join(' - ').trim();
+  const craftHint = [input.workshopContext?.category, craftList].filter(Boolean).join(' ').trim();
   const safeImageUri = normalizeImageDataUri(input.imageBase64, input.mimeType);
-
-  const visualSubject = await enrichPromptToVisualEnglish(
-    safeUserPrompt || (safeImageUri ? 'the uploaded handmade craft product, preserving its exact shape, colors, pattern, and materials' : ''),
-    craftHint || 'Egyptian handmade craft product'
-  );
-
-  const scenePrompt = MODE_SCENE_PROMPTS[mode];
-  const finalPrompt = safeImageUri
-    ? `Keep the exact handmade product from the reference image unchanged in shape, weave, texture, and colors, and place it seamlessly in this new scene: ${scenePrompt} Subject details: ${visualSubject}.`
-    : `Professional studio product photo of ${visualSubject}. ${scenePrompt}`;
-
-  // 1) If an image was uploaded, try edit mode first so Taygos routes to Kontext/background-edit when available
-  let res = safeImageUri
-    ? await callTaygosGatewayImage({
-        task: 'edit',
-        prompt: finalPrompt,
-        image: safeImageUri,
-        width: 1024,
-        height: 1024,
-        timeoutMs: 40000,
-      })
-    : null;
-
-  // 2) Direct generate mode (primary for text-only, automatic fallback if edit endpoint isn't supported for this call)
-  if (!res || !res.ok) {
-    res = await callTaygosGatewayImage({
-      task: 'generate',
-      prompt: finalPrompt,
-      image: safeImageUri,
-      width: 1024,
-      height: 1024,
-      timeoutMs: 40000,
-    });
-  }
-
-  if (!res.ok) {
-    return {
-      ok: false,
-      underConstruction: false,
-      mode,
-      message: `تعذر تجهيز صورة الاستوديو (${modeLabelAr}) حالياً: ${res.summary || 'الخدمة مشغولة مؤقتاً — جرّب مرة تانية بعد لحظات.'}`,
-    };
-  }
-
-  let imageDataUrl = '';
-  if (res.imageUrl && (res.imageUrl.startsWith('data:image/') || res.imageUrl.startsWith('https://'))) {
-    imageDataUrl = res.imageUrl;
-  } else if (res.imageBase64) {
-    const mime = res.mimeType || 'image/png';
-    imageDataUrl = `data:${mime};base64,${res.imageBase64}`;
-  }
-
-  if (!imageDataUrl) {
-    return {
-      ok: false,
-      underConstruction: false,
-      mode,
-      message: 'استجابت بوابة الصور بدون ملف صورة قابل للعرض — يرجى المحاولة مرة أخرى.',
-    };
-  }
 
   const modeCaption =
     mode === 'store'
@@ -215,14 +178,126 @@ export async function generateFalconStudioImage(
       ? 'تم تجهيز الصورة بأجواء ورشة حرفية دافئة تبرز قيمة الشغل اليدوي الأصيل.'
       : 'تم تجهيز الصورة داخل ديكور منزلي طبيعي يوضّح جمال القطعة في بيت العميل.';
 
+  // =========================================================================
+  // PATH A: User uploaded a real product photo
+  // =========================================================================
+  if (safeImageUri) {
+    // Step 1: Try direct Taygos bg_edit (FLUX.1 Kontext) with short timeout
+    const editRes = await callTaygosGatewayImage({
+      task: 'bg_edit',
+      prompt: `Place the exact handmade product seamlessly ${MODE_SUBJECT_PROMPTS[mode]}`,
+      image: safeImageUri,
+      width: 512,
+      height: 512,
+      timeoutMs: 14000,
+    });
+
+    if (editRes.ok) {
+      const url = extractImageDataUrl(editRes);
+      if (url) {
+        return {
+          ok: true,
+          underConstruction: false,
+          mode,
+          imageDataUrl: url,
+          mimeType: editRes.mimeType || 'image/png',
+          provider: editRes.provider,
+          model: editRes.model,
+          message: `✨ **استوديو صقر (${modeLabelAr})**\n${modeCaption}\nتقدر تحمّل الصورة بأعلى دقة أو تضيف تذييل ورشتك بضغطة واحدة 👇`,
+        };
+      }
+    }
+
+    // Step 2: bg_edit Space was busy -> Generate an empty AI studio scene via Taygos (clean fast 512x512, NO base64 attached)
+    // and let the client composite the artisan's REAL uploaded product onto that AI scene!
+    const scenePrompt = safeUserPrompt
+      ? `${MODE_EMPTY_BACKDROP_PROMPTS[mode]}, matching mood for ${await enrichPromptToVisualEnglish(safeUserPrompt, craftHint)}`
+      : MODE_EMPTY_BACKDROP_PROMPTS[mode];
+
+    const sceneRes = await callTaygosGatewayImage({
+      task: 'generate',
+      prompt: scenePrompt.slice(0, 220),
+      width: 512,
+      height: 512,
+      timeoutMs: 22000,
+    });
+
+    if (sceneRes.ok) {
+      const sceneUrl = extractImageDataUrl(sceneRes);
+      if (sceneUrl) {
+        return {
+          ok: true,
+          underConstruction: false,
+          mode,
+          imageDataUrl: sceneUrl,
+          mimeType: sceneRes.mimeType || 'image/png',
+          provider: sceneRes.provider,
+          model: sceneRes.model,
+          compositeUploadedProduct: true,
+          message: `✨ **استوديو صقر (${modeLabelAr})**\nتم توليد خلفية الاستوديو السحابية عبر Taygos ودمج صورة منتجك الحقيقي عليها بدقة وإضاءة متناسقة!\nتقدر تحمّل الصورة أو تضيف تذييل ورشتك بضغطة واحدة 👇`,
+        };
+      }
+    }
+
+    // Step 3: All Taygos external free image queues (HuggingFace/Pollinations) are currently 502/503 ->
+    // Signal instant Built-in Local Studio Renderer so the artisan NEVER hits a dead end!
+    return {
+      ok: true,
+      underConstruction: false,
+      mode,
+      fallbackToLocalStudio: true,
+      message: `✨ **استوديو صقر (${modeLabelAr})**\nتم تجهيز صورة منتجك فوراً عبر **الاستوديو المدمج** (نظراً لوجود ضغط مؤقت على طابور مزودي الصور المجانيين في Taygos الآن).\nتقدر تحمّل الصورة بأعلى دقة أو تضيف تذييل ورشتك بضغطة واحدة 👇`,
+    };
+  }
+
+  // =========================================================================
+  // PATH B: Text-only product studio generation (no photo uploaded)
+  // =========================================================================
+  const visualSubject = await enrichPromptToVisualEnglish(safeUserPrompt, craftHint);
+  const finalPrompt = `Handmade ${visualSubject}, ${MODE_SUBJECT_PROMPTS[mode]}`.slice(0, 220);
+
+  let genRes = await callTaygosGatewayImage({
+    task: 'generate',
+    prompt: finalPrompt,
+    width: 512,
+    height: 512,
+    timeoutMs: 22000,
+  });
+
+  // One quick automatic retry on transient 502/503/429 (e.g., Api.Airforce 1 req/s limit or Pollinations hiccup)
+  if (!genRes.ok && [429, 502, 503, 504].includes(Number(genRes.statusCode || 0))) {
+    await new Promise((r) => setTimeout(r, 1400));
+    genRes = await callTaygosGatewayImage({
+      task: 'generate',
+      prompt: finalPrompt,
+      width: 512,
+      height: 512,
+      timeoutMs: 22000,
+    });
+  }
+
+  if (genRes.ok) {
+    const imageDataUrl = extractImageDataUrl(genRes);
+    if (imageDataUrl) {
+      return {
+        ok: true,
+        underConstruction: false,
+        mode,
+        imageDataUrl,
+        mimeType: genRes.mimeType || 'image/png',
+        provider: genRes.provider,
+        model: genRes.model,
+        message: `✨ **استوديو صقر (${modeLabelAr})**\n${modeCaption}\nتقدر تحمّل الصورة بأعلى دقة أو تضيف تذييل ورشتك بضغطة واحدة 👇`,
+      };
+    }
+  }
+
   return {
-    ok: true,
+    ok: false,
     underConstruction: false,
     mode,
-    imageDataUrl,
-    mimeType: res.mimeType || 'image/png',
-    provider: res.provider,
-    model: res.model,
-    message: `✨ **استوديو صقر (${modeLabelAr})**\n${modeCaption}\nتقدر تحمّل الصورة بأعلى دقة أو تضيف تذييل ورشتك بضغطة واحدة 👇`,
+    message:
+      `مزودو توليد الصور المجانيون داخل بوابة Taygos عليهم ضغط مؤقت حالياً (HuggingFace / Pollinations).\n` +
+      `💡 **الحل السريع الآن:** ارفع صورة منتجك من زر المرفقات 📎 وهجهّزها لك فوراً في الاستوديو بدون انتظار، أو جرّب التوليد بالوصف النصي مرة تانية بعد دقيقة.`,
   };
 }
