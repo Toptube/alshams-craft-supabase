@@ -14,6 +14,10 @@ import {
   fetchFreeWebSearchResults,
   getGroqApiKeys,
   getFanarApiKey,
+  getTaygosConfig,
+  getOllamaConfig,
+  callTaygosGatewayChat,
+  callOllamaCloudChat,
   formatAiErrorReason,
   cleanSecretValue,
   isGeminiKeyCircuitOpen,
@@ -897,14 +901,63 @@ export class GeminiAIProvider {
     }
 
     // -------------------------------------------------------------
-    // Provider 3: Fanar AI (المحرك العربي الاحتياطي الثالث)
+    // Provider 3: Taygos Multi-Provider Gateway (بوابة تايجوس الاحتياطية)
+    // -------------------------------------------------------------
+    const buildOpenAIMessages = () => {
+      const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: buildCompactSystemInstruction(systemInstruction, 3200) },
+      ];
+      for (const h of chatHistory.slice(-8)) {
+        const text = h.content || h.parts?.[0]?.text || h.text || '';
+        if (text) {
+          msgs.push({
+            role: h.role === 'model' || h.role === 'assistant' || h.sender === 'falcon' ? 'assistant' : 'user',
+            content: String(text).slice(0, 1400),
+          });
+        }
+      }
+      msgs.push({ role: 'user', content: promptWithSearch });
+      return msgs;
+    };
+
+    if (!hasImages && getTaygosConfig().apiKey) {
+      console.log('[AI Service: Falcon] Attempting Provider 3 (Taygos Gateway)...');
+      try {
+        const taygosReply = await callTaygosGatewayChat(buildOpenAIMessages(), { temperature: 0.5, maxTokens: 1300 });
+        if (taygosReply) {
+          console.log('[AI Service: Falcon] Provider 3 (Taygos Gateway) succeeded!');
+          return { reply: taygosReply, sources: fallbackSources, searchUsed: fallbackSearchUsed };
+        }
+      } catch (taygosErr: any) {
+        console.warn('[AI Service: Falcon] Taygos Gateway failed:', taygosErr?.message);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Provider 4: Ollama Cloud (alshamsawya)
+    // -------------------------------------------------------------
+    if (!hasImages && getOllamaConfig().apiKey) {
+      console.log('[AI Service: Falcon] Attempting Provider 4 (Ollama Cloud)...');
+      try {
+        const ollamaReply = await callOllamaCloudChat(buildOpenAIMessages(), { temperature: 0.5, maxTokens: 1300 });
+        if (ollamaReply) {
+          console.log('[AI Service: Falcon] Provider 4 (Ollama Cloud) succeeded!');
+          return { reply: ollamaReply, sources: fallbackSources, searchUsed: fallbackSearchUsed };
+        }
+      } catch (ollamaErr: any) {
+        console.warn('[AI Service: Falcon] Ollama Cloud failed:', ollamaErr?.message);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Provider 5: Fanar AI (المحرك العربي الاحتياطي)
     // -------------------------------------------------------------
     if (!hasImages && fanarKey) {
-      console.log('[AI Service: Falcon] Attempting Provider 3 (Fanar AI)...');
+      console.log('[AI Service: Falcon] Attempting Provider 5 (Fanar AI)...');
       try {
         const fanarReply = await callFanarFallback(systemInstruction, chatHistory, promptWithSearch, fanarKey);
         if (fanarReply) {
-          console.log('[AI Service: Falcon] Provider 3 (Fanar) succeeded!');
+          console.log('[AI Service: Falcon] Provider 5 (Fanar) succeeded!');
           return { reply: fanarReply, sources: fallbackSources, searchUsed: fallbackSearchUsed };
         }
       } catch (fanarErr: any) {

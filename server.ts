@@ -38,6 +38,7 @@ import {
   getAgentSecretStatus,
   getLiveSearchHealthStatus,
   runFullApiHealthAudit,
+  scheduleBackupProvidersBootCheck,
 } from './server/googleSearchService.js';
 import { synthesizePersonaSpeech } from './server/neuralTtsService.js';
 import { translateFieldsBatch } from './server/translationService.js';
@@ -6434,21 +6435,47 @@ app.post('/api/analyze-vision', requireAuth, handleFalconVision);
 app.post('/api/ai/analyze-image', requireAuth, handleFalconVision);
 
 // -------------------------------------------------------------
-// استوديو صور المنتجات لصقر الشمساوية — تحت الإنشاء (مجاني 100% بدون أي API مدفوع)
+// استوديو صور المنتجات لصقر الشمساوية — يعمل مباشرة عبر بوابة Taygos للصور
 // -------------------------------------------------------------
 const handleFalconStudio = async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
   const email = req.userEmail || req.user?.email || '';
-  const { mode } = req.body || {};
+  const { mode, imageBase64, mimeType, userPrompt, workshopContext } = req.body || {};
   const normalizedMode: FalconStudioMode =
     mode === 'workshop' ? 'workshop' : mode === 'home' ? 'home' : 'store';
 
-  const result = await generateFalconStudioImage({ mode: normalizedMode });
-  res.json({
-    ...result,
-    message: result.message || FALCON_STUDIO_UNDER_CONSTRUCTION_MESSAGE,
-    remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
-  });
+  if (typeof imageBase64 === 'string' && imageBase64.length > 10 * 1024 * 1024) {
+    res.status(413).json({
+      ok: false,
+      error: 'حجم الصورة كبير جداً. يرجى اختيار صورة أصغر من 7 ميجابايت.',
+    });
+    return;
+  }
+
+  try {
+    const result = await generateFalconStudioImage({
+      mode: normalizedMode,
+      imageBase64: typeof imageBase64 === 'string' ? imageBase64 : undefined,
+      mimeType: typeof mimeType === 'string' ? mimeType : undefined,
+      userPrompt: typeof userPrompt === 'string' ? userPrompt : undefined,
+      workshopContext:
+        workshopContext && typeof workshopContext === 'object' ? workshopContext : undefined,
+    });
+
+    res.status(result.ok ? 200 : 502).json({
+      ...result,
+      message: result.message || FALCON_STUDIO_UNDER_CONSTRUCTION_MESSAGE,
+      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
+    });
+  } catch (err: any) {
+    console.error('[Falcon Studio Error]:', err?.message || err);
+    res.status(502).json({
+      ok: false,
+      mode: normalizedMode,
+      error: 'تعذر تجهيز صورة الاستوديو حالياً — يرجى المحاولة مرة أخرى.',
+      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
+    });
+  }
 };
 
 app.post('/api/ai/falcon-studio', requireAuth, handleFalconStudio);
@@ -13881,20 +13908,30 @@ setInterval(() => {
 }, 6 * 60 * 60 * 1000).unref();
 
 // -------------------------------------------------------------
-// Start Server (Vite in Dev with SPA catch-all, Static in Prod)
+// Start Server (Bind Port 3000 Immediately + Non-Blocking Vite Dev Middleware)
 // -------------------------------------------------------------
 async function startServer() {
+  let viteReadyPromise: Promise<any> | null = null;
+
   if (!isProduction) {
-    const { createServer: createViteServer } = await import('vite');
-    viteDevServer = await createViteServer({
-      server: { middlewareMode: true, hmr: false, ws: false },
-      appType: 'spa',
+    viteReadyPromise = (async () => {
+      const { createServer: createViteServer } = await import('vite');
+      const server = await createViteServer({
+        server: { middlewareMode: true, hmr: false, ws: false },
+        appType: 'spa',
+      });
+      viteDevServer = server;
+      return server;
+    })();
+    viteReadyPromise.catch((err) => {
+      console.error('[Vite Dev Init Error]:', err);
     });
 
     // Prevent Vite 8 @vite/client from attempting HMR WebSocket connections or throwing SendBeforeConnectError when HMR is disabled
     app.get('/@vite/client', async (_req: Request, res: Response, next: NextFunction) => {
       try {
-        const result = await viteDevServer.transformRequest('/@vite/client');
+        const srv = viteDevServer || (await viteReadyPromise);
+        const result = await srv.transformRequest('/@vite/client');
         if (result?.code) {
           const patched = result.code
             .replace(
@@ -13916,7 +13953,20 @@ async function startServer() {
       next();
     });
 
-    app.use(viteDevServer.middlewares);
+    app.use(async (req: Request, res: Response, next: NextFunction) => {
+      if (req.originalUrl.startsWith('/api/')) {
+        return next();
+      }
+      try {
+        const srv = viteDevServer || (await viteReadyPromise);
+        if (srv?.middlewares) {
+          return srv.middlewares(req, res, next);
+        }
+      } catch (err) {
+        return next(err);
+      }
+      return next();
+    });
 
     // Explicit SPA Catch-all Fallback for Development:
     app.use('*', async (req: Request, res: Response, next: NextFunction) => {
@@ -13924,10 +13974,11 @@ async function startServer() {
         return next();
       }
       try {
+        const srv = viteDevServer || (await viteReadyPromise);
         const indexPath = path.resolve(__dirname, 'index.html');
         if (!fs.existsSync(indexPath)) return next();
         let html = fs.readFileSync(indexPath, 'utf-8');
-        html = await viteDevServer.transformIndexHtml(req.originalUrl, html);
+        html = await srv.transformIndexHtml(req.originalUrl, html);
         res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
       } catch (err: any) {
         if (viteDevServer) viteDevServer.ssrFixStacktrace(err);
@@ -13972,7 +14023,6 @@ async function startServer() {
       if (urlObj.pathname !== '/ws/family') {
         return;
       }
-
       const token = urlObj.searchParams.get('token') || '';
       const queryEmail = urlObj.searchParams.get('email') || '';
       const queryWid = urlObj.searchParams.get('workshopId') || '';
@@ -14025,22 +14075,33 @@ async function startServer() {
     console.log(`👥 مجتمع عيلة الشمساوية (WebSocket /ws/family): متصل ونشط ✅`);
     console.log(`🌐 خادم الويب يستمع على المنفذ: http://${HOST}:${PORT}`);
     console.log('================================================================');
-    // Auto-seed Unified Materials to Supabase if tables exist and need initial population
-    syncAllUnifiedMaterialsToSupabase(supabaseAdminClient)
-      .then((rep) => {
-        if (rep.ok) {
-          console.log(
-            `🏷️  منظومة الخامات الموحدة في Supabase: متزامنة ✅ (masters=${rep.verifiedCounts.masters}, brands=${rep.verifiedCounts.brands}, specs=${rep.verifiedCounts.specs}, aliases=${rep.verifiedCounts.aliases})`
-          );
-        } else if (rep.tablesMissing.length > 0) {
-          console.log(
-            `⏳ منظومة الخامات الموحدة تعمل محلياً مؤقتاً بانتظار تشغيل SQL في Supabase (${rep.tablesMissing.length} جدول)`
-          );
-        }
-      })
-      .catch(() => {});
+
+    // Defer non-critical background tasks slightly so startup stays instant
+    setTimeout(() => {
+      try {
+        scheduleBackupProvidersBootCheck();
+      } catch {}
+
+      syncAllUnifiedMaterialsToSupabase(supabaseAdminClient)
+        .then((rep) => {
+          if (rep.ok) {
+            console.log(
+              `🏷️  منظومة الخامات الموحدة في Supabase: متزامنة ✅ (masters=${rep.verifiedCounts.masters}, brands=${rep.verifiedCounts.brands}, specs=${rep.verifiedCounts.specs}, aliases=${rep.verifiedCounts.aliases})`
+            );
+          } else if (rep.tablesMissing.length > 0) {
+            console.log(
+              `⏳ منظومة الخامات الموحدة تعمل محلياً مؤقتاً بانتظار تشغيل SQL في Supabase (${rep.tablesMissing.length} جدول)`
+            );
+          }
+        })
+        .catch(() => {});
+    }, 3000).unref();
   });
 }
+
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Server UnhandledRejection]:', reason instanceof Error ? reason.message : String(reason));
+});
 
 startServer().catch((err) => {
   console.error('[Server Start Error]:', err);

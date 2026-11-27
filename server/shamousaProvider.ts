@@ -15,6 +15,10 @@ import {
   fetchFreeWebSearchResults,
   getGroqApiKeys,
   getFanarApiKey,
+  getTaygosConfig,
+  getOllamaConfig,
+  callTaygosGatewayChat,
+  callOllamaCloudChat,
   formatAiErrorReason,
   cleanSecretValue,
   isGeminiKeyCircuitOpen,
@@ -1191,14 +1195,72 @@ export async function handleShamousaChat(
   }
 
   // -------------------------------------------------------------
-  // Provider 3 (Emergency Backup): Fanar Arabic LLM
+  // Provider 3 (Backup): Taygos Multi-Provider Gateway (Alshams Craft)
+  // -------------------------------------------------------------
+  const normalizedFallbackMessages = fallbackMessages.map((m: any) => ({
+    role: (m.role === 'system' ? 'system' : m.role === 'assistant' ? 'assistant' : 'user') as
+      | 'system'
+      | 'user'
+      | 'assistant',
+    content: String(m.content || ''),
+  }));
+
+  if (!hasImages && getTaygosConfig().apiKey) {
+    console.log('[AI Service: Shamousa] Attempting Provider 3 (Taygos Gateway)...');
+    try {
+      const taygosReply = await callTaygosGatewayChat(normalizedFallbackMessages, {
+        temperature: 0.5,
+        maxTokens: 1200,
+      });
+      if (taygosReply) {
+        console.log('[AI Service: Shamousa] Provider 3 (Taygos Gateway) succeeded.');
+        return {
+          reply: taygosReply,
+          handoffToFalcon: false,
+          provider: fallbackSearchUsed ? 'taygos_web_search' : 'taygos',
+          sources: fallbackSearchSources,
+          searchUsed: fallbackSearchUsed,
+        };
+      }
+    } catch (taygosErr: any) {
+      console.warn('[AI Service: Shamousa] Taygos Gateway failed:', taygosErr?.message);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Provider 4 (Backup): Ollama Cloud (alshamsawya)
+  // -------------------------------------------------------------
+  if (!hasImages && getOllamaConfig().apiKey) {
+    console.log('[AI Service: Shamousa] Attempting Provider 4 (Ollama Cloud)...');
+    try {
+      const ollamaReply = await callOllamaCloudChat(normalizedFallbackMessages, {
+        temperature: 0.5,
+        maxTokens: 1200,
+      });
+      if (ollamaReply) {
+        console.log('[AI Service: Shamousa] Provider 4 (Ollama Cloud) succeeded.');
+        return {
+          reply: ollamaReply,
+          handoffToFalcon: false,
+          provider: fallbackSearchUsed ? 'ollama_web_search' : 'ollama',
+          sources: fallbackSearchSources,
+          searchUsed: fallbackSearchUsed,
+        };
+      }
+    } catch (ollamaErr: any) {
+      console.warn('[AI Service: Shamousa] Ollama Cloud failed:', ollamaErr?.message);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Provider 5 (Emergency Backup): Fanar Arabic LLM
   // -------------------------------------------------------------
   if (!hasImages && fanarKey) {
-    console.log('[AI Service: Shamousa] Attempting Provider 3 (Fanar AI)...');
+    console.log('[AI Service: Shamousa] Attempting Provider 5 (Fanar AI)...');
     try {
       const fanarReply = await callFanarChat(fallbackMessages, fanarKey);
       if (fanarReply) {
-        console.log('[AI Service: Shamousa] Provider 3 (Fanar) succeeded.');
+        console.log('[AI Service: Shamousa] Provider 5 (Fanar) succeeded.');
         return {
           reply: fanarReply,
           handoffToFalcon: false,

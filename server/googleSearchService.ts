@@ -42,6 +42,15 @@ export const ACTIVE_GROQ_CHAT_MODELS = [
   'qwen/qwen3.8-27b',
 ] as const;
 export const ACTIVE_FANAR_MODELS = ['Fanar'] as const;
+export const DEFAULT_TAYGOS_API_URL = 'https://taygos-apis-768687356856.europe-west2.run.app/api/v1/chat/completions';
+export const DEFAULT_OLLAMA_CLOUD_URL = 'https://ollama.com/api/chat';
+export const ACTIVE_OLLAMA_CLOUD_MODELS = [
+  'gpt-oss:20b',
+  'gemma4:31b',
+  'deepseek-v4.1-flash',
+  'glm-5.3-flash',
+  'gpt-oss:120b',
+] as const;
 
 // Circuit breaker to avoid wasting sequential retries on invalid/revoked Gemini keys
 const GEMINI_KEY_CIRCUIT_TTL_MS = 5 * 60 * 1000;
@@ -85,9 +94,11 @@ export function getLiveSearchHealthStatus(): {
   const groqKeys = getGroqApiKeys();
   const groqSearchReady = groqKeys.length > 0 && !isGroqSearchCircuitOpen();
   const fanarReady = Boolean(getFanarApiKey());
+  const taygosReady = Boolean(getTaygosConfig().apiKey);
+  const ollamaReady = Boolean(getOllamaConfig().apiKey);
   // Tier 3 (free keyless DuckDuckGo/Google News RSS + any AI synthesizer) stays live even during a 20s Tier 1/2 RPM cooldown
   const anySynthesisReady = Boolean(
-    (geminiKey && !isGeminiKeyCircuitOpen(geminiKey)) || groqKeys.length > 0 || fanarReady
+    (geminiKey && !isGeminiKeyCircuitOpen(geminiKey)) || groqKeys.length > 0 || taygosReady || ollamaReady || fanarReady
   );
   const liveSearchAvailable = googleSearchReady || groqSearchReady || anySynthesisReady;
   const primaryEngine = googleSearchReady
@@ -182,11 +193,982 @@ export function getFanarApiKey(): string {
   return cleanSecretValue(process.env.FANAR_API_KEY || process.env.FANAR_KEY);
 }
 
+/**
+ * Validates that an external AI provider endpoint is strictly HTTPS and not targeting
+ * loopback, private RFC1918, or cloud metadata addresses.
+ */
+function isSafeExternalHttpsUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      !host ||
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '0.0.0.0' ||
+      host === '::1' ||
+      host === '[::1]' ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host.startsWith('169.254.') ||
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function looksLikeProviderSecretOrKey(val: string): boolean {
+  const s = val.trim();
+  if (!s) return false;
+  return /^(pk_|sk_|gsk_|AIza|http:\/\/|https:\/\/)/i.test(s) || s.includes(':sk_');
+}
+
+function isValidAsciiModelId(val: string): boolean {
+  const s = val.trim();
+  if (!s || s.length < 2 || s.length > 90) return false;
+  if (looksLikeProviderSecretOrKey(s)) return false;
+  if (/^(ollama|taygos|alshams|alshamsawya|alshams[\s_-]?craft|auto|default|none|null)$/i.test(s)) {
+    return false;
+  }
+  return /^[a-zA-Z0-9._:/-]+$/.test(s);
+}
+
+function stripBearerPrefix(val: string): string {
+  return val.replace(/^bearer\s+/i, '').trim();
+}
+
+function extractSanitizedErrorDetail(rawText: string): string {
+  const safe = redactSecrets(String(rawText || '')).trim();
+  if (!safe) return '';
+  try {
+    const parsed: any = JSON.parse(safe);
+    const msg =
+      parsed?.error?.message ||
+      (typeof parsed?.error === 'string' ? parsed.error : '') ||
+      parsed?.message ||
+      parsed?.detail ||
+      '';
+    if (msg) return redactSecrets(String(msg)).replace(/\s+/g, ' ').trim().slice(0, 180);
+  } catch {}
+  return safe.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
+export function getTaygosConfig(): {
+  apiKey: string;
+  publicKey: string;
+  secretKey: string;
+  apiUrl: string;
+  model: string;
+} {
+  const rawVars = [
+    stripBearerPrefix(cleanSecretValue(process.env.TAYGOS_API_KEY)),
+    stripBearerPrefix(cleanSecretValue(process.env.TAYGOS_ALSHAMS_API_KEY)),
+    stripBearerPrefix(cleanSecretValue(process.env.TAYGOS_PUBLIC_KEY)),
+    stripBearerPrefix(cleanSecretValue(process.env.TAYGOS_SECRET_KEY)),
+    stripBearerPrefix(cleanSecretValue(process.env.TAYGOS_MODEL)),
+  ].filter(Boolean);
+
+  let combinedPair = '';
+  let publicKey = '';
+  let secretKey = '';
+
+  for (const v of rawVars) {
+    if (v.includes(':sk_taygos_') || /^pk_[^:]+:sk_.+/i.test(v)) {
+      combinedPair = v;
+      const [pk, ...rest] = v.split(':');
+      publicKey = publicKey || pk.trim();
+      secretKey = secretKey || rest.join(':').trim();
+    } else if (/^pk_taygos_/i.test(v)) {
+      publicKey = publicKey || v;
+    } else if (/^sk_taygos_/i.test(v)) {
+      secretKey = secretKey || v;
+    }
+  }
+
+  const directFallback = stripBearerPrefix(
+    cleanSecretValue(process.env.TAYGOS_API_KEY || process.env.TAYGOS_ALSHAMS_API_KEY)
+  );
+  const apiKey =
+    combinedPair ||
+    (publicKey && secretKey ? `${publicKey}:${secretKey}` : '') ||
+    secretKey ||
+    directFallback;
+
+  const rawUrl = cleanSecretValue(process.env.TAYGOS_API_URL);
+  const apiUrl =
+    rawUrl &&
+    isSafeExternalHttpsUrl(rawUrl) &&
+    /\/chat\/completions\/?$/i.test(rawUrl)
+      ? rawUrl
+      : DEFAULT_TAYGOS_API_URL;
+
+  const rawModel = cleanSecretValue(process.env.TAYGOS_MODEL);
+  const model = isValidAsciiModelId(rawModel) ? rawModel : 'auto';
+  return { apiKey, publicKey, secretKey, apiUrl, model };
+}
+
+let cachedOllamaCloudModels: { models: string[]; fetchedAt: number } | null = null;
+
+async function discoverOllamaCloudModels(apiKey: string): Promise<string[]> {
+  if (cachedOllamaCloudModels && Date.now() - cachedOllamaCloudModels.fetchedAt < 10 * 60 * 1000) {
+    return cachedOllamaCloudModels.models;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+  try {
+    const res = await fetch('https://ollama.com/api/tags', {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      const rawList = Array.isArray(data?.models) ? data.models : [];
+      const discovered = rawList
+        .map((m: any) => String(m?.name || m?.model || '').trim())
+        .filter((name: string) => isValidAsciiModelId(name) && !/embed|whisper|rerank/i.test(name));
+      if (discovered.length > 0) {
+        // Prefer fast strong multilingual/Arabic-capable models first
+        const preferredOrder = ['gpt-oss', 'qwen3', 'gemma3', 'deepseek', 'llama'];
+        discovered.sort((a: string, b: string) => {
+          const ia = preferredOrder.findIndex((p) => a.toLowerCase().includes(p));
+          const ib = preferredOrder.findIndex((p) => b.toLowerCase().includes(p));
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        });
+        cachedOllamaCloudModels = { models: discovered.slice(0, 6), fetchedAt: Date.now() };
+        return cachedOllamaCloudModels.models;
+      }
+    }
+  } catch {
+    // Fallback to curated list below
+  } finally {
+    clearTimeout(timer);
+  }
+  return [];
+}
+
+export function getOllamaConfig(): { apiKey: string; apiUrl: string; models: string[] } {
+  const apiKey = stripBearerPrefix(
+    cleanSecretValue(
+      process.env.OLLAMA_API_KEY || process.env.OLLAMA_CLOUD_API_KEY || process.env.OLLAMA_KEY
+    )
+  );
+  const rawUrl = cleanSecretValue(process.env.OLLAMA_API_URL);
+  // لو المستخدم حط رابط صفحة الإعدادات (ollama.com/settings/keys) أو رابط غير API -> نستخدم رابط Ollama Cloud API الرسمي تلقائياً
+  const isValidOllamaEndpoint =
+    Boolean(rawUrl) &&
+    isSafeExternalHttpsUrl(rawUrl) &&
+    !/\/settings(\/|$)/i.test(rawUrl) &&
+    (/\/api\/chat\/?$/i.test(rawUrl) || /\/v1\/chat\/completions\/?$/i.test(rawUrl));
+  const apiUrl = isValidOllamaEndpoint ? rawUrl : DEFAULT_OLLAMA_CLOUD_URL;
+
+  const rawModel = cleanSecretValue(process.env.OLLAMA_MODEL);
+  const validEnvModel = isValidAsciiModelId(rawModel) ? rawModel : '';
+  const models = Array.from(
+    new Set([validEnvModel, ...ACTIVE_OLLAMA_CLOUD_MODELS].filter(Boolean))
+  );
+  return { apiKey, apiUrl, models };
+}
+
+function buildTaygosHeaderVariants(
+  apiKey: string,
+  publicKey: string,
+  secretKey: string
+): Array<Record<string, string>> {
+  const variants: Array<Record<string, string>> = [];
+  if (publicKey && secretKey) {
+    variants.push({
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${publicKey}:${secretKey}`,
+      'X-Taygos-Public-Key': publicKey,
+      'X-Taygos-Secret-Key': secretKey,
+    });
+    variants.push({
+      'Content-Type': 'application/json',
+      'X-Taygos-Public-Key': publicKey,
+      'X-Taygos-Secret-Key': secretKey,
+    });
+  }
+  variants.push({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${apiKey}`,
+  });
+  return variants;
+}
+
+let taygosCooldownUntil = 0;
+let ollamaCooldownUntil = 0;
+
+export async function callTaygosGatewayChat(
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  opts?: { temperature?: number; maxTokens?: number; timeoutMs?: number }
+): Promise<string | null> {
+  if (Date.now() < taygosCooldownUntil) return null;
+  const { apiKey, publicKey, secretKey, apiUrl, model } = getTaygosConfig();
+  if (!apiKey) return null;
+
+  const candidateModels: Array<string | undefined> = Array.from(
+    new Set([model === 'auto' ? undefined : model, 'taygos-unified', 'auto', undefined, 'gpt-4o-mini'])
+  );
+  const headerVariants = buildTaygosHeaderVariants(apiKey, publicKey, secretKey);
+  let lastErr = '';
+
+  for (const candidateModel of candidateModels) {
+    for (let authIdx = 0; authIdx < headerVariants.length; authIdx++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 22000);
+      try {
+        const bodyObj: Record<string, any> = {
+          messages,
+          temperature: opts?.temperature ?? 0.5,
+          max_tokens: opts?.maxTokens ?? 1200,
+        };
+        if (candidateModel) {
+          bodyObj.model = candidateModel;
+        }
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: headerVariants[authIdx],
+          body: JSON.stringify(bodyObj),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errBody = extractSanitizedErrorDetail(await res.text().catch(() => ''));
+          lastErr = `HTTP ${res.status}: ${errBody}`;
+          if ((res.status === 401 || res.status === 403) && authIdx + 1 < headerVariants.length) {
+            continue;
+          }
+          if (res.status === 400 || res.status === 404 || res.status === 422) {
+            break; // try next model format
+          }
+          throw new Error(`Taygos ${lastErr}`);
+        }
+
+        const data: any = await res.json();
+        const rawTxt = String(
+          data?.choices?.[0]?.message?.content ||
+            data?.message?.content ||
+            data?.reply ||
+            data?.text ||
+            data?.output ||
+            ''
+        ).trim();
+        const cleaned = rawTxt.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        if (cleaned) return cleaned;
+        break;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          lastErr = 'Timeout';
+          break;
+        }
+        lastErr = redactSecrets(err?.message || String(err));
+        if (lastErr.includes('401') || lastErr.includes('403')) {
+          if (authIdx + 1 < headerVariants.length) continue;
+          taygosCooldownUntil = Date.now() + 5 * 60 * 1000;
+          throw new Error(`Taygos auth error: ${lastErr}`);
+        }
+        break;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  if (lastErr) {
+    console.warn(`[Taygos Gateway] Skipped: ${redactSecrets(lastErr)}`);
+  }
+  return null;
+}
+
+export async function callOllamaCloudChat(
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  opts?: { temperature?: number; maxTokens?: number; timeoutMs?: number }
+): Promise<string | null> {
+  if (Date.now() < ollamaCooldownUntil) return null;
+  const { apiKey, apiUrl, models: staticModels } = getOllamaConfig();
+  if (!apiKey) return null;
+
+  const discoveredModels = await discoverOllamaCloudModels(apiKey);
+  const models = Array.from(new Set([...discoveredModels, ...staticModels])).slice(0, 6);
+
+  const isOpenAICompat = /\/v1\/chat\/completions\/?$/i.test(apiUrl);
+  let lastErr = '';
+
+  for (const model of models) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 22000);
+    try {
+      const payload = isOpenAICompat
+        ? {
+            model,
+            messages,
+            temperature: opts?.temperature ?? 0.5,
+            max_tokens: opts?.maxTokens ?? 1200,
+          }
+        : {
+            model,
+            messages,
+            stream: false,
+            options: {
+              temperature: opts?.temperature ?? 0.5,
+              num_predict: opts?.maxTokens ?? 1200,
+            },
+          };
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const errBody = extractSanitizedErrorDetail(await res.text().catch(() => ''));
+        lastErr = `HTTP ${res.status} [${model}]: ${errBody}`;
+        if (res.status === 402 || res.status === 401 || res.status === 403) {
+          ollamaCooldownUntil = Date.now() + 10 * 60 * 1000;
+          throw new Error(`Ollama Cloud ${lastErr}`);
+        }
+        if (res.status === 404 || res.status === 429 || res.status === 400) {
+          continue;
+        }
+        throw new Error(`Ollama Cloud ${lastErr}`);
+      }
+
+      const data: any = await res.json();
+      const rawTxt = String(
+        data?.message?.content || data?.choices?.[0]?.message?.content || data?.response || ''
+      ).trim();
+      const cleaned = rawTxt.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      if (cleaned) return cleaned;
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        lastErr = `Timeout on ${model}`;
+        continue;
+      }
+      lastErr = redactSecrets(err?.message || String(err));
+      if (lastErr.includes('401') || lastErr.includes('403')) {
+        throw new Error(`Ollama Cloud auth error: ${lastErr}`);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  if (lastErr) {
+    console.warn(`[Ollama Cloud] Skipped: ${redactSecrets(lastErr)}`);
+  }
+  return null;
+}
+
+function getTaygosBaseV1Url(chatApiUrl: string): string {
+  const base = chatApiUrl.replace(/\/chat\/completions\/?$/i, '').replace(/\/+$/, '');
+  return isSafeExternalHttpsUrl(base) ? base : 'https://taygos-apis-768687356856.europe-west2.run.app/api/v1';
+}
+
+export interface TaygosImageResult {
+  ok: boolean;
+  statusCode?: number;
+  provider?: string;
+  model?: string;
+  imageUrl?: string;
+  imageBase64?: string;
+  mimeType?: string;
+  summary: string;
+  detail?: string;
+}
+
+function extractTaygosProviderMeta(data: any, fallbackModel: string): { provider?: string; model: string } {
+  const provObj = data?.provider && typeof data.provider === 'object' ? data.provider : null;
+  const providerStr = provObj
+    ? String(provObj.name || provObj.id || '').trim()
+    : typeof data?.provider === 'string'
+    ? data.provider.trim()
+    : typeof data?.backend === 'string'
+    ? data.backend.trim()
+    : '';
+  const modelStr = String(
+    (provObj && provObj.model) ||
+      (typeof data?.model === 'string' ? data.model : '') ||
+      (Array.isArray(data?.data) && typeof data.data[0]?.model === 'string' ? data.data[0].model : '') ||
+      fallbackModel
+  ).trim();
+  return {
+    provider: providerStr || undefined,
+    model: modelStr || fallbackModel,
+  };
+}
+
+function findNestedMediaString(obj: any, kind: 'image' | 'video', depth = 0): { url?: string; base64?: string } {
+  if (!obj || depth > 4) return {};
+  if (typeof obj === 'string') {
+    const s = obj.trim();
+    if (kind === 'image') {
+      if (s.startsWith('data:image/')) return { url: s };
+      if (/^https?:\/\//i.test(s) && /\.(png|jpe?g|webp|gif|avif)|image|gradio|hf\.space|pollinations|replicate|fal\.media|storage/i.test(s)) {
+        return { url: s };
+      }
+    } else {
+      if (s.startsWith('data:video/')) return { url: s };
+      if (/^https?:\/\//i.test(s) && /\.(mp4|webm|mov)|video|gradio|hf\.space|replicate|fal\.media|storage/i.test(s)) {
+        return { url: s };
+      }
+    }
+    return {};
+  }
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = findNestedMediaString(item, kind, depth + 1);
+      if (found.url || found.base64) return found;
+    }
+    return {};
+  }
+  if (typeof obj === 'object') {
+    const urlKeys =
+      kind === 'image'
+        ? ['imageDataUrl', 'dataUrl', 'sceneImageUrl', 'imageUrl', 'image_url', 'url', 'outputUrl', 'mediaUrl']
+        : ['videoDataUrl', 'videoUrl', 'video_url', 'dataUrl', 'url', 'outputUrl', 'mediaUrl'];
+    for (const k of urlKeys) {
+      const v = obj[k];
+      if (typeof v === 'string' && (v.startsWith('https://') || v.startsWith('http://') || v.startsWith('data:'))) {
+        return { url: v.trim() };
+      }
+    }
+    const b64Keys =
+      kind === 'image'
+        ? ['b64_json', 'imageBase64', 'image_base64', 'base64', 'image']
+        : ['b64_json', 'videoBase64', 'video_base64', 'base64'];
+    for (const k of b64Keys) {
+      const v = obj[k];
+      if (typeof v === 'string' && v.trim().length > 80) {
+        const trimmed = v.trim();
+        if (trimmed.startsWith('data:') || trimmed.startsWith('https://')) return { url: trimmed };
+        return { base64: trimmed };
+      }
+    }
+    const nestedContainers = ['result', 'output', 'data', 'media', 'asset', 'artifacts', 'images', 'videos'];
+    for (const nk of nestedContainers) {
+      if (obj[nk]) {
+        const found = findNestedMediaString(obj[nk], kind, depth + 1);
+        if (found.url || found.base64) return found;
+      }
+    }
+  }
+  return {};
+}
+
+export async function callTaygosGatewayImage(opts: {
+  prompt: string;
+  task?: 'generate' | 'edit' | 'remove_background';
+  image?: string;
+  width?: number;
+  height?: number;
+  timeoutMs?: number;
+}): Promise<TaygosImageResult> {
+  const { apiKey, publicKey, secretKey, apiUrl } = getTaygosConfig();
+  if (!apiKey) {
+    return { ok: false, summary: 'بوابة Taygos غير مضبوطة في الإعدادات' };
+  }
+  const endpoint = `${getTaygosBaseV1Url(apiUrl)}/images/generations`;
+  if (!isSafeExternalHttpsUrl(endpoint)) {
+    return { ok: false, summary: 'رابط بوابة الصور غير صالح' };
+  }
+  const headers = buildTaygosHeaderVariants(apiKey, publicKey, secretKey)[0];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30000);
+  try {
+    const payload: Record<string, any> = {
+      task: opts.task || 'generate',
+      prompt: opts.prompt,
+      width: opts.width ?? 1024,
+      height: opts.height ?? 1024,
+    };
+    if (opts.image) {
+      payload.image = opts.image;
+      payload.image_url = opts.image;
+    }
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const rawText = await res.text().catch(() => '');
+    if (!res.ok) {
+      const detail = extractSanitizedErrorDetail(rawText);
+      return {
+        ok: false,
+        statusCode: res.status,
+        summary: formatAiErrorReason(detail || `HTTP ${res.status}`),
+        detail: detail || `HTTP ${res.status}`,
+      };
+    }
+    let data: any = {};
+    try {
+      data = JSON.parse(rawText);
+    } catch {}
+    const { provider, model } = extractTaygosProviderMeta(data, 'taygos-image');
+    const found = findNestedMediaString(data, 'image');
+    const imageUrl = found.url || '';
+    const imageBase64 = found.base64 || '';
+    const hasMedia = Boolean(
+      (imageUrl && (imageUrl.startsWith('https://') || imageUrl.startsWith('http://') || imageUrl.startsWith('data:image/'))) ||
+        imageBase64.length > 80
+    );
+    const topKeys = Object.keys(data || {}).join(',');
+    return {
+      ok: hasMedia,
+      statusCode: res.status,
+      provider,
+      model,
+      imageUrl: imageUrl || undefined,
+      imageBase64: imageBase64 || undefined,
+      mimeType: data?.mimeType || data?.result?.mimeType || 'image/png',
+      summary: hasMedia ? `يعمل بنجاح (${provider || model})` : `استجاب HTTP 200 بدون رابط صورة (keys=${topKeys})`,
+      detail: hasMedia
+        ? `provider=${provider || model}, media=${imageUrl.startsWith('data:') ? 'dataUrl' : imageUrl ? 'url' : 'base64'}`
+        : `keys=${topKeys} | ${extractSanitizedErrorDetail(rawText)}`,
+    };
+  } catch (e: any) {
+    const detail = redactSecrets(e?.name === 'AbortError' ? 'Timeout' : e?.message || String(e));
+    return { ok: false, summary: formatAiErrorReason(detail), detail };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface TaygosVideoResult {
+  ok: boolean;
+  statusCode?: number;
+  provider?: string;
+  model?: string;
+  videoUrl?: string;
+  jobId?: string;
+  status?: string;
+  summary: string;
+  detail?: string;
+}
+
+export async function callTaygosGatewayVideo(opts: {
+  prompt: string;
+  image?: string;
+  video?: string;
+  duration?: number;
+  timeoutMs?: number;
+}): Promise<TaygosVideoResult> {
+  const { apiKey, publicKey, secretKey, apiUrl } = getTaygosConfig();
+  if (!apiKey) {
+    return { ok: false, summary: 'بوابة Taygos غير مضبوطة في الإعدادات' };
+  }
+  const endpoint = `${getTaygosBaseV1Url(apiUrl)}/videos/generations`;
+  if (!isSafeExternalHttpsUrl(endpoint)) {
+    return { ok: false, summary: 'رابط بوابة الفيديو غير صالح' };
+  }
+  const headers = buildTaygosHeaderVariants(apiKey, publicKey, secretKey)[0];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 45000);
+  try {
+    const payload: Record<string, any> = {
+      prompt: opts.prompt,
+    };
+    if (opts.image) payload.image = opts.image;
+    if (opts.video) payload.video = opts.video;
+    if (opts.duration) payload.duration = opts.duration;
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const rawText = await res.text().catch(() => '');
+    if (!res.ok) {
+      const detail = extractSanitizedErrorDetail(rawText);
+      return {
+        ok: false,
+        statusCode: res.status,
+        summary: formatAiErrorReason(detail || `HTTP ${res.status}`),
+        detail: detail || `HTTP ${res.status}`,
+      };
+    }
+    let data: any = {};
+    try {
+      data = JSON.parse(rawText);
+    } catch {}
+    const { provider, model } = extractTaygosProviderMeta(data, 'taygos-video');
+    const found = findNestedMediaString(data, 'video');
+    const videoUrl = found.url || '';
+    const jobId = String(data?.job_id || data?.jobId || data?.task_id || data?.result?.jobId || '').trim();
+    const status = String(data?.status || data?.state || data?.result?.status || '').trim();
+    const ok = Boolean(videoUrl || jobId || /queued|processing|pending|succeeded|completed|ready/i.test(status));
+    const topKeys = Object.keys(data || {}).join(',');
+    return {
+      ok,
+      statusCode: res.status,
+      provider,
+      model,
+      videoUrl: videoUrl || undefined,
+      jobId: jobId || undefined,
+      status: status || undefined,
+      summary: videoUrl
+        ? `يعمل بنجاح (${provider || model})`
+        : jobId
+        ? `تم قبول طلب الفيديو (${status || 'queued'} — ${provider || model})`
+        : `استجاب بدون رابط فيديو (keys=${topKeys})`,
+      detail: ok
+        ? `provider=${provider || model}${status ? `, status=${status}` : ''}`
+        : `keys=${topKeys} | ${extractSanitizedErrorDetail(rawText)}`,
+    };
+  } catch (e: any) {
+    const detail = redactSecrets(e?.name === 'AbortError' ? 'Timeout' : e?.message || String(e));
+    return { ok: false, summary: formatAiErrorReason(detail), detail };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function listTaygosModels(): Promise<{ ok: boolean; count: number; ids: string[] }> {
+  const { apiKey, publicKey, secretKey, apiUrl } = getTaygosConfig();
+  if (!apiKey) return { ok: false, count: 0, ids: [] };
+  const endpoint = `${getTaygosBaseV1Url(apiUrl)}/models`;
+  if (!isSafeExternalHttpsUrl(endpoint)) return { ok: false, count: 0, ids: [] };
+  const headers = buildTaygosHeaderVariants(apiKey, publicKey, secretKey)[0];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+  try {
+    const res = await fetch(endpoint, { method: 'GET', headers, signal: controller.signal });
+    if (!res.ok) return { ok: false, count: 0, ids: [] };
+    const data: any = await res.json();
+    const arr = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+    const ids = arr.map((m: any) => String(m?.id || m?.name || '')).filter(Boolean);
+    return { ok: true, count: ids.length, ids: ids.slice(0, 15) };
+  } catch {
+    return { ok: false, count: 0, ids: [] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface TaygosCapabilityStatus {
+  ok: boolean;
+  statusCode?: number;
+  modelUsed?: string;
+  provider?: string;
+  summary: string;
+  detail?: string;
+  hasMedia?: boolean;
+}
+
+export interface BackupProviderLiveProbe {
+  configured: boolean;
+  ok: boolean;
+  statusCode?: number;
+  modelUsed?: string;
+  endpointHost?: string;
+  summary: string;
+  detail?: string;
+  checkedAt: string;
+  capabilities?: {
+    chat?: TaygosCapabilityStatus;
+    images?: TaygosCapabilityStatus;
+    videos?: TaygosCapabilityStatus;
+    modelsCount?: number;
+    sampleModels?: string[];
+  };
+}
+
+let bootBackupProbeState: {
+  taygos: BackupProviderLiveProbe | null;
+  ollama: BackupProviderLiveProbe | null;
+} = { taygos: null, ollama: null };
+
+export async function probeTaygosGatewayLive(): Promise<BackupProviderLiveProbe> {
+  const { apiKey, publicKey, secretKey, apiUrl, model } = getTaygosConfig();
+  const checkedAt = new Date().toISOString();
+  let endpointHost = '';
+  try {
+    endpointHost = new URL(apiUrl).hostname;
+  } catch {}
+  if (!apiKey) {
+    return {
+      configured: false,
+      ok: false,
+      endpointHost,
+      summary: 'غير مضبوط في الإعدادات (Secrets)',
+      checkedAt,
+    };
+  }
+
+  const candidateModels: Array<string | undefined> = Array.from(
+    new Set([model === 'auto' ? undefined : model, 'taygos-unified', 'auto', undefined, 'gpt-4o-mini'])
+  );
+  const headerVariants = buildTaygosHeaderVariants(apiKey, publicKey, secretKey);
+  let lastStatus = 0;
+  let lastErr = '';
+  let chatCap: TaygosCapabilityStatus | null = null;
+
+  for (const candidateModel of candidateModels) {
+    for (const headers of headerVariants) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      try {
+        const bodyObj: Record<string, any> = {
+          messages: [{ role: 'user', content: 'مرحبا' }],
+          max_tokens: 20,
+          temperature: 0.2,
+        };
+        if (candidateModel) bodyObj.model = candidateModel;
+
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(bodyObj),
+          signal: controller.signal,
+        });
+        lastStatus = res.status;
+        if (!res.ok) {
+          lastErr = extractSanitizedErrorDetail(await res.text().catch(() => ''));
+          if (res.status === 401 || res.status === 403) continue;
+          break;
+        }
+        const data: any = await res.json();
+        const txt = String(
+          data?.choices?.[0]?.message?.content ||
+            data?.message?.content ||
+            data?.reply ||
+            data?.text ||
+            data?.output ||
+            ''
+        ).trim();
+        if (txt) {
+          const meta = extractTaygosProviderMeta(data, candidateModel || 'taygos-unified');
+          chatCap = {
+            ok: true,
+            statusCode: res.status,
+            modelUsed: meta.model,
+            provider: meta.provider,
+            summary: `يعمل بنجاح (${meta.model})`,
+          };
+          break;
+        }
+        lastErr = 'رد فارغ من البوابة';
+        break;
+      } catch (e: any) {
+        lastErr = redactSecrets(e?.message || String(e));
+        break;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    if (chatCap?.ok || lastStatus === 401 || lastStatus === 403) {
+      break;
+    }
+  }
+
+  if (chatCap?.ok) {
+    // Probe Images, Videos, and Models in parallel so we have full live visibility without slowing startup
+    const [imgRes, vidRes, modelsRes] = await Promise.all([
+      callTaygosGatewayImage({
+        task: 'generate',
+        prompt: 'Handmade beige cotton macrame coaster on clean white studio background',
+        width: 512,
+        height: 512,
+        timeoutMs: 28000,
+      }),
+      callTaygosGatewayVideo({
+        prompt: 'Handmade ceramic cup rotating slowly on clean white studio turntable',
+        timeoutMs: 45000,
+      }),
+      listTaygosModels(),
+    ]);
+
+    const imagesCap: TaygosCapabilityStatus = {
+      ok: imgRes.ok,
+      statusCode: imgRes.statusCode,
+      modelUsed: imgRes.model,
+      provider: imgRes.provider,
+      summary: imgRes.summary,
+      detail: imgRes.detail,
+      hasMedia: Boolean(imgRes.imageUrl || imgRes.imageBase64),
+    };
+    const videosCap: TaygosCapabilityStatus = {
+      ok: vidRes.ok,
+      statusCode: vidRes.statusCode,
+      modelUsed: vidRes.model,
+      provider: vidRes.provider,
+      summary: vidRes.summary,
+      detail: vidRes.detail,
+      hasMedia: Boolean(vidRes.videoUrl || vidRes.jobId),
+    };
+
+    const result: BackupProviderLiveProbe = {
+      configured: true,
+      ok: true,
+      statusCode: chatCap.statusCode,
+      modelUsed: chatCap.modelUsed,
+      endpointHost,
+      summary: `شات ✅ (${chatCap.modelUsed}) | صور ${imagesCap.ok ? '✅' : '⚠️'} | فيديو ${videosCap.ok ? '✅' : '⚠️'}`,
+      checkedAt,
+      capabilities: {
+        chat: chatCap,
+        images: imagesCap,
+        videos: videosCap,
+        modelsCount: modelsRes.count,
+        sampleModels: modelsRes.ids,
+      },
+    };
+    bootBackupProbeState.taygos = result;
+    return result;
+  }
+
+  const failed: BackupProviderLiveProbe = {
+    configured: true,
+    ok: false,
+    statusCode: lastStatus || undefined,
+    endpointHost,
+    summary: formatAiErrorReason(lastErr || `HTTP ${lastStatus}`),
+    detail: lastErr || undefined,
+    checkedAt,
+  };
+  bootBackupProbeState.taygos = failed;
+  return failed;
+}
+
+export async function probeOllamaCloudLive(): Promise<BackupProviderLiveProbe> {
+  const { apiKey, apiUrl, models: staticModels } = getOllamaConfig();
+  const checkedAt = new Date().toISOString();
+  let endpointHost = '';
+  try {
+    endpointHost = new URL(apiUrl).hostname;
+  } catch {}
+  if (!apiKey) {
+    return {
+      configured: false,
+      ok: false,
+      endpointHost,
+      summary: 'غير مضبوط في الإعدادات (Secrets)',
+      checkedAt,
+    };
+  }
+
+  const discovered = await discoverOllamaCloudModels(apiKey);
+  const models = Array.from(new Set([...staticModels, ...discovered])).slice(0, 4);
+  const isOpenAICompat = /\/v1\/chat\/completions\/?$/i.test(apiUrl);
+  let lastStatus = 0;
+  let lastErr = '';
+  let lastModel = '';
+  let consecutive402 = 0;
+
+  for (const model of models) {
+    lastModel = model;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 14000);
+    try {
+      const payload = isOpenAICompat
+        ? { model, messages: [{ role: 'user', content: 'مرحبا' }], max_tokens: 20 }
+        : { model, messages: [{ role: 'user', content: 'مرحبا' }], stream: false, options: { num_predict: 20 } };
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      lastStatus = res.status;
+      if (!res.ok) {
+        lastErr = extractSanitizedErrorDetail(await res.text().catch(() => ''));
+        if (res.status === 402) {
+          consecutive402 += 1;
+          if (consecutive402 >= 2) break;
+          continue;
+        }
+        if (res.status === 404 || res.status === 400 || res.status === 429) continue;
+        break;
+      }
+      const data: any = await res.json();
+      const txt = String(
+        data?.message?.content || data?.choices?.[0]?.message?.content || data?.response || ''
+      ).trim();
+      if (txt) {
+        const result: BackupProviderLiveProbe = {
+          configured: true,
+          ok: true,
+          statusCode: res.status,
+          modelUsed: model,
+          endpointHost,
+          summary: `يعمل بنجاح (${model})`,
+          checkedAt,
+        };
+        bootBackupProbeState.ollama = result;
+        return result;
+      }
+      lastErr = `رد فارغ من ${model}`;
+    } catch (e: any) {
+      lastErr = redactSecrets(e?.message || String(e));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const failed: BackupProviderLiveProbe = {
+    configured: true,
+    ok: false,
+    statusCode: lastStatus || undefined,
+    modelUsed: lastModel || undefined,
+    endpointHost,
+    summary: formatAiErrorReason(lastErr || `HTTP ${lastStatus}`),
+    detail: lastErr || undefined,
+    checkedAt,
+  };
+  bootBackupProbeState.ollama = failed;
+  return failed;
+}
+
+// Run a single non-blocking startup verification for optional backup providers (Taygos + Ollama Cloud)
+let bootBackupProbeStarted = false;
+export function scheduleBackupProvidersBootCheck(): void {
+  if (bootBackupProbeStarted) return;
+  bootBackupProbeStarted = true;
+  setTimeout(() => {
+    if (getTaygosConfig().apiKey) {
+      probeTaygosGatewayLive()
+        .then((r) => console.log(`[AI Startup Probe] Taygos Gateway: ok=${r.ok} status=${r.statusCode || 0} (${r.summary})`))
+        .catch(() => {});
+    }
+    if (getOllamaConfig().apiKey) {
+      probeOllamaCloudLive()
+        .then((r) => console.log(`[AI Startup Probe] Ollama Cloud: ok=${r.ok} status=${r.statusCode || 0} (${r.summary})`))
+        .catch(() => {});
+    }
+  }, 1500);
+}
+
 export function formatAiErrorReason(reason?: string): string {
   const r = String(reason || '').trim();
   if (!r) return 'غير متاح حالياً';
   const lower = r.toLowerCase();
 
+  if (lower.includes('invalid taygos public key') || lower.includes('invalid taygos secret')) {
+    return 'مفتاح Taygos غير معرّف أو تم مسحه من خادم البوابة — يحتاج إعادة توليد المفتاح من تطبيق Taygos (HTTP 401)';
+  }
+  if (lower.includes('add usage credits') || lower.includes('payment required') || lower.includes('402')) {
+    return 'حساب Ollama Cloud لا يحتوي على رصيد مجاني حالياً ويتطلب شحن رصيد أو اشتراك (HTTP 402)';
+  }
   if (lower.includes('api_key_invalid') || lower.includes('api key not valid') || lower.includes('invalid api key') || lower.includes('invalid_api_key')) {
     return 'مفتاح التشغيل غير صالح أو منتهي في الإعدادات (Secrets)';
   }
@@ -296,6 +1278,8 @@ export function getAgentSecretStatus() {
   const shamousaKey = resolveAgentGeminiKey('shamousa');
   const groqKeys = getGroqApiKeys();
   const fanarKey = getFanarApiKey();
+  const taygosCfg = getTaygosConfig();
+  const ollamaCfg = getOllamaConfig();
   const geminiUsable = Boolean(
     (falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)) ||
       (falconVisionKey && !isGeminiKeyCircuitOpen(falconVisionKey)) ||
@@ -310,9 +1294,26 @@ export function getAgentSecretStatus() {
     groqConfigured: groqKeys.length > 0,
     groqKeyCount: groqKeys.length,
     activeGroqModel: ACTIVE_GROQ_CHAT_MODELS[0],
+    taygosConfigured: Boolean(taygosCfg.apiKey),
+    taygosHasKeyPair: Boolean(taygosCfg.publicKey && taygosCfg.secretKey),
+    taygosProbe: bootBackupProbeState.taygos,
+    ollamaConfigured: Boolean(ollamaCfg.apiKey),
+    ollamaProbe: bootBackupProbeState.ollama,
     fanarConfigured: Boolean(fanarKey),
-    activePrimaryProvider: geminiUsable ? 'gemini' : groqKeys.length > 0 ? 'groq' : fanarKey ? 'fanar' : 'none',
-    googleSearchGroundingReady: Boolean(geminiUsable || groqKeys.length > 0 || fanarKey),
+    activePrimaryProvider: geminiUsable
+      ? 'gemini'
+      : groqKeys.length > 0
+      ? 'groq'
+      : taygosCfg.apiKey
+      ? 'taygos'
+      : ollamaCfg.apiKey
+      ? 'ollama'
+      : fanarKey
+      ? 'fanar'
+      : 'none',
+    googleSearchGroundingReady: Boolean(
+      geminiUsable || groqKeys.length > 0 || taygosCfg.apiKey || ollamaCfg.apiKey || fanarKey
+    ),
     freeLiveWebSearchReady: true,
     paidApisRemoved: true,
   };
@@ -1016,7 +2017,7 @@ export async function performGoogleSearch(
 export interface ApiAuditEntry {
   id: string;
   name: string;
-  category: 'gemini' | 'groq' | 'fanar' | 'search' | 'infra' | 'push' | 'fx';
+  category: 'gemini' | 'groq' | 'taygos' | 'ollama' | 'fanar' | 'search' | 'infra' | 'push' | 'fx';
   envVars: string[];
   configured: boolean;
   optional?: boolean;
@@ -1031,6 +2032,8 @@ function redactSecrets(text: string): string {
   return String(text || '')
     .replace(/AIza[0-9A-Za-z\-_]{20,}/g, '[REDACTED_KEY]')
     .replace(/gsk_[0-9A-Za-z]{16,}/g, '[REDACTED_KEY]')
+    .replace(/(?:pk|sk)_taygos_[0-9A-Za-z_:-]{10,}/g, '[REDACTED_KEY]')
+    .replace(/Bearer\s+[0-9A-Za-z._:\-]{12,}/gi, 'Bearer [REDACTED_TOKEN]')
     .replace(/eyJ[0-9A-Za-z\-_]+\.[0-9A-Za-z\-_]+\.[0-9A-Za-z\-_]+/g, '[REDACTED_JWT]')
     .slice(0, 260);
 }
@@ -1280,6 +2283,8 @@ export async function runFullApiHealthAudit(): Promise<{
     groqPrimary,
     groqSecondary,
     fanarProbe,
+    taygosProbe,
+    ollamaProbe,
     liveWebSearchProbe,
     gnewsProbe,
     fxProbe,
@@ -1359,6 +2364,70 @@ export async function runFullApiHealthAudit(): Promise<{
         summary: anyOk ? 'يعمل بنجاح' : formatAiErrorReason(lastErr),
         rawError: anyOk ? undefined : lastErr,
         models: modelsOut,
+      };
+    })(),
+    // Taygos Multi-Provider Gateway probe (Alshams Craft — Chat + Images + Videos)
+    (async (): Promise<ApiAuditEntry> => {
+      const res = await probeTaygosGatewayLive();
+      const caps = res.capabilities;
+      const capModels: Array<{ model: string; ok: boolean; statusCode?: number; note?: string }> = [];
+      if (caps?.chat) {
+        capModels.push({
+          model: `Chat (${caps.chat.modelUsed || 'taygos-unified'})`,
+          ok: caps.chat.ok,
+          statusCode: caps.chat.statusCode,
+          note: caps.chat.summary,
+        });
+      }
+      if (caps?.images) {
+        capModels.push({
+          model: `Images (${caps.images.modelUsed || 'images/generations'})`,
+          ok: caps.images.ok,
+          statusCode: caps.images.statusCode,
+          note: caps.images.summary,
+        });
+      }
+      if (caps?.videos) {
+        capModels.push({
+          model: `Videos (${caps.videos.modelUsed || 'videos/generations'})`,
+          ok: caps.videos.ok,
+          statusCode: caps.videos.statusCode,
+          note: caps.videos.summary,
+        });
+      }
+      return {
+        id: 'taygos_gateway',
+        name: 'Taygos Multi-Provider Gateway (Alshams Craft — شات/صور/فيديو)',
+        category: 'taygos',
+        envVars: ['TAYGOS_API_KEY'],
+        configured: res.configured,
+        optional: true,
+        ok: res.ok,
+        statusCode: res.statusCode,
+        summary: res.summary,
+        models: capModels.length > 0
+          ? capModels
+          : res.modelUsed
+          ? [{ model: res.modelUsed, ok: res.ok, statusCode: res.statusCode, note: res.ok ? 'يعمل بنجاح' : res.summary }]
+          : undefined,
+      };
+    })(),
+    // Ollama Cloud probe (alshamsawya)
+    (async (): Promise<ApiAuditEntry> => {
+      const res = await probeOllamaCloudLive();
+      return {
+        id: 'ollama_cloud',
+        name: 'Ollama Cloud API (alshamsawya)',
+        category: 'ollama',
+        envVars: ['OLLAMA_API_KEY'],
+        configured: res.configured,
+        optional: true,
+        ok: res.ok,
+        statusCode: res.statusCode,
+        summary: res.summary,
+        models: res.modelUsed
+          ? [{ model: res.modelUsed, ok: res.ok, statusCode: res.statusCode, note: res.ok ? 'يعمل بنجاح' : res.summary }]
+          : undefined,
       };
     })(),
     // Free Live Web Search (DuckDuckGo + Google News RSS unified free engine — zero API keys)
@@ -1575,6 +2644,8 @@ export async function runFullApiHealthAudit(): Promise<{
       groqPrimary,
       groqSecondary,
       fanarProbe,
+      taygosProbe,
+      ollamaProbe,
       liveWebSearchProbe,
       gnewsProbe,
       fxProbe,

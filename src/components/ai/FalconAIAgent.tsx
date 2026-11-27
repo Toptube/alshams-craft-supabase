@@ -512,28 +512,195 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     return { workshopName, artistName: artistFullName, logoUrl, isSupplier: isSupplierAccount };
   };
 
+  const composeStudioBrandedImage = async (
+    rawDataUrl: string,
+    branding: { workshopName: string; artistName: string; isSupplier: boolean }
+  ): Promise<string | null> => {
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.crossOrigin = 'anonymous';
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('image_load_failed'));
+        el.src = rawDataUrl;
+      });
+      const w = img.naturalWidth || 1024;
+      const h = img.naturalHeight || 1024;
+      const footerH = Math.max(72, Math.round(h * 0.11));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h + footerH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // Elegant Al-Shamsawiyah navy & gold footer bar
+      const grad = ctx.createLinearGradient(0, h, w, h + footerH);
+      grad.addColorStop(0, '#0C1427');
+      grad.addColorStop(1, '#1A2744');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, h, w, footerH);
+
+      ctx.fillStyle = '#D97706';
+      ctx.fillRect(0, h, w, Math.max(3, Math.round(footerH * 0.05)));
+
+      const padX = Math.round(w * 0.04);
+      ctx.textBaseline = 'middle';
+      ctx.direction = 'rtl';
+
+      // Right side: Workshop / Brand name
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#FEF3C7';
+      const titleSize = Math.max(20, Math.round(footerH * 0.34));
+      ctx.font = `800 ${titleSize}px Cairo, sans-serif`;
+      const primaryTitle = branding.workshopName || (branding.isSupplier ? 'مورد الشمساوية' : 'ورشة الشمساوية');
+      ctx.fillText(primaryTitle, w - padX, h + footerH * (branding.artistName ? 0.38 : 0.52));
+
+      if (branding.artistName && branding.artistName !== primaryTitle) {
+        ctx.fillStyle = '#CBD5E1';
+        const subSize = Math.max(14, Math.round(footerH * 0.22));
+        ctx.font = `600 ${subSize}px Cairo, sans-serif`;
+        ctx.fillText(branding.artistName, w - padX, h + footerH * 0.72);
+      }
+
+      // Left side: Al-Shamsawiyah subtle badge
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#F59E0B';
+      const badgeSize = Math.max(13, Math.round(footerH * 0.22));
+      ctx.font = `700 ${badgeSize}px Cairo, sans-serif`;
+      ctx.fillText('الشمساوية • شغل يدوي أصيل', padX, h + footerH * 0.52);
+
+      return canvas.toDataURL('image/png', 0.94);
+    } catch {
+      return null;
+    }
+  };
+
   const runFalconStudioGeneration = async (
     mode: 'store' | 'workshop' | 'home',
-    _overrideAttachment?: { base64: string; mimeType: string; name: string } | null,
-    _overrideText?: string
+    overrideAttachment?: { base64: string; mimeType: string; name: string } | null,
+    overrideText?: string
   ) => {
     setIsStudioMenuOpen(false);
-    setPendingStudioMode(null);
     const modeTitle = STUDIO_MODE_LABELS[mode];
-    showFeedback(`🚧 استوديو صقر (${modeTitle}) — تحت الإنشاء حالياً`);
+    const activeAttachment = overrideAttachment !== undefined ? overrideAttachment : pendingAttachment;
+    const activeText = (overrideText !== undefined ? overrideText : inputPrompt).trim();
+
+    // If user clicked a mode before attaching a photo or typing a description, arm pendingStudioMode cleanly
+    if (!activeAttachment && !activeText) {
+      setPendingStudioMode(mode);
+      showFeedback(`📸 وضع الاستوديو (${modeTitle}) جاهز — أرفق صورة منتجك أو اكتب وصفه واضغط إرسال`);
+      setTimeout(() => textareaRef.current?.focus(), 80);
+      return;
+    }
+
+    if (isGeneratingStudio) return;
+
+    setPendingStudioMode(null);
+    setPendingAttachment(null);
+    setInputPrompt('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+
+    const userMsgText = activeText
+      ? `استوديو صقر (${modeTitle}): ${activeText}`
+      : `تجهيز صورة المنتج في استوديو صقر (${modeTitle})`;
 
     setMessages((prev) => [
       ...prev,
       {
-        id: 'falcon_studio_wip_' + Date.now(),
-        sender: 'falcon',
-        text:
-          `🚧 **استوديو صقر لتجهيز الصور (${modeTitle}) — تحت الإنشاء حالياً**\n\n` +
-          `بنجهّزلك الاستوديو بأعلى جودة عشان تطلع صور منتجاتك جاهزة للعرض بأفضل شكل.\n` +
-          `حالياً تقدر تكلم صقر بالكتابة أو بالصوت في التسعير، حساب الخامات والهالك، ودراسة السوق وهيساعدك فوراً 🦅`,
+        id: 'user_studio_' + Date.now(),
+        sender: 'user',
+        text: userMsgText,
         timestamp: Date.now(),
+        metadata: activeAttachment ? { previewImage: activeAttachment.base64 } : undefined,
       },
     ]);
+
+    setIsGeneratingStudio(true);
+    setStudioLoadingLabel(`استوديو صقر يجهّز صورتك (${modeTitle}) الآن...`);
+
+    try {
+      const resp = await authedFetch('/api/ai/falcon-studio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          imageBase64: activeAttachment?.base64,
+          mimeType: activeAttachment?.mimeType,
+          userPrompt: activeText,
+          workshopContext: {
+            selectedCrafts: (profile as any).selectedCrafts || ((profile as any).category ? [(profile as any).category] : []),
+            category: (profile as any).category || (profile as any).craftCategory || '',
+            brandName: (profile as any).workshopName || profile.brandName,
+            artistName: (profile as any).fullName || profile.artistName,
+            accountRole: isSupplierAccount ? 'supplier' : 'artisan',
+            country: profile.country || 'مصر',
+          },
+        }),
+      });
+
+      const data = await resp.json().catch(() => ({}));
+      if (typeof data?.remaining === 'number') {
+        setDailyRemaining(data.remaining);
+      }
+
+      if (!resp.ok || !data?.ok || !data?.imageDataUrl) {
+        const errMsg =
+          data?.message || data?.error || `تعذر تجهيز صورة الاستوديو (${modeTitle}) حالياً. حاول مرة أخرى بعد لحظات.`;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: 'falcon_studio_err_' + Date.now(),
+            sender: 'falcon',
+            text: `⚠️ ${errMsg}`,
+            timestamp: Date.now(),
+          },
+        ]);
+        showFeedback('تعذر تجهيز الصورة حالياً — جرّب مرة تانية');
+        return;
+      }
+
+      const rawImg: string = data.imageDataUrl;
+      const branding = getWorkshopBranding();
+      const brandedImg = await composeStudioBrandedImage(rawImg, branding);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'falcon_studio_ok_' + Date.now(),
+          sender: 'falcon',
+          text:
+            data.message ||
+            `✨ تم تجهيز صورة منتجك بنجاح في وضع (${modeTitle})! يمكنك تحميلها الآن أو إضافة تذييل ورشتك.`,
+          timestamp: Date.now(),
+          metadata: {
+            studioImage: rawImg,
+            studioRawImage: rawImg,
+            studioBrandedImage: brandedImg || undefined,
+            studioFooterEnabled: false,
+            studioMode: mode,
+          },
+        },
+      ]);
+      showFeedback(`✨ تم تجهيز صورة الاستوديو (${modeTitle}) بنجاح!`);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'falcon_studio_neterr_' + Date.now(),
+          sender: 'falcon',
+          text: '⚠️ حدث انقطاع مؤقت أثناء تجهيز صورة الاستوديو — يرجى المحاولة مرة أخرى.',
+          timestamp: Date.now(),
+        },
+      ]);
+      showFeedback('تعذر الاتصال باستوديو الصور حالياً');
+    } finally {
+      setIsGeneratingStudio(false);
+      setStudioLoadingLabel('');
+    }
   };
 
   const handleToggleStudioFooter = (msgId: string) => {
