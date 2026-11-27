@@ -220,16 +220,26 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
     if (!textToSend) setInputMessage('');
     setSending(true);
 
-    const isTrainingCommand = ['هبرمجك', 'فهمت؟!', 'احفظ', 'هنكمل', 'كده تمام'].includes(msg);
+    const normCmd = msg
+      .replace(/[\u064B-\u065F\u0670]/g, '')
+      .replace(/[أإآٱ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .trim();
+    const isStartTrainCmd = /(^|\s)(هبرمجك|ابرمجك|انا هبرمجك|كلمه السر هبرمجك|عايز ابرمجك|وضع البرمجه)(\s|$)/.test(normCmd);
+    const isUnderstoodCmd = /^(فهمت|فهمتي)[\s؟?!]*$/.test(normCmd);
+    const isSaveCmd = /^(احفظ|حفظ|احفظها|ثبت|احفظ القاعده)$/.test(normCmd);
+    const isDoneCmd = /^(كده تمام|خلاص كده تمام|اقفل البرمجه|انهاء البرمجه)$/.test(normCmd);
+    const isContinueCmd = /^(هنكمل|كمل)$/.test(normCmd);
+    const isTrainingCommand = isStartTrainCmd || isUnderstoodCmd || isSaveCmd || isDoneCmd || isContinueCmd;
 
     // Quick local tracking of Super Admin training protocol
-    if (msg === 'هبرمجك') {
+    if (isStartTrainCmd) {
       setInTrainingMode(true);
       setPendingTrainingBuffer([]);
       playAlertSound();
-    } else if (msg === 'فهمت؟!') {
+    } else if (isUnderstoodCmd) {
       playSuccessSound();
-    } else if (msg === 'احفظ') {
+    } else if (isSaveCmd) {
       if (pendingTrainingBuffer.length > 0) {
         const joinedRule = pendingTrainingBuffer.join('\n').trim();
         const keywords = Array.from(
@@ -249,11 +259,11 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
         setPendingTrainingBuffer([]);
       }
       playSuccessSound();
-    } else if (msg === 'كده تمام') {
+    } else if (isDoneCmd) {
       setInTrainingMode(false);
       setPendingTrainingBuffer([]);
       playSuccessSound();
-    } else if (inTrainingMode && msg !== 'هنكمل') {
+    } else if (inTrainingMode && !isContinueCmd) {
       setPendingTrainingBuffer((prev) => [...prev, msg]);
     }
 

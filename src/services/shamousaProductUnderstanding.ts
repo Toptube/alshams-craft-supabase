@@ -20,6 +20,7 @@ import {
   getAccountLengthPreference,
   type LearnedToneStyle,
 } from './shamousaSelfCheckAndLearning';
+import { MAIN_SECTIONS, SUB_CRAFTS_REGISTRY } from '../registry/craftsRegistry';
 
 export interface ProductUnderstandingResult {
   rawText: string;
@@ -138,24 +139,25 @@ function fuzzyMatchScore(token: string, keywordToken: string): number {
 }
 
 const GENERAL_PRODUCT_SYNONYMS: Array<{ canonical: string; patterns: RegExp[] }> = [
+  { canonical: 'كوشن / خدادية', patterns: [/كوشن/, /خداديه/, /خدادي/, /وساده/, /وسائد/, /مخده/] },
+  { canonical: 'رانر / مفرش', patterns: [/رانر/, /مفرش/, /مفارش/] },
   { canonical: 'تعليقة حائط', patterns: [/تعليقه حائط/, /معلقه/, /جداري/, /تابلو/, /ديكور حائط/, /فوق السرير/] },
   { canonical: 'حامل نباتات', patterns: [/حامل نبات/, /حامل زرع/, /اصيص/, /زرعه/] },
   { canonical: 'ملتقط أحلام', patterns: [/ملتقط احلام/, /دريم كاتشر/] },
   { canonical: 'قاعدة أكواب', patterns: [/قاعده اكواب/, /كوستر/, /كوسترات/, /كاسات/] },
   { canonical: 'ميدالية', patterns: [/ميدالي/, /حامل مفاتيح/, /سلسله مفاتيح/] },
-  { canonical: 'شنطة', patterns: [/شنط/, /حقيب/, /بوك/, /كروس/, /توت باج/] },
-  { canonical: 'دمية أميجورومي', patterns: [/اميجورومي/, /دمي/, /دميه/, /عروسه لعبه/, /دبدوب/] },
-  { canonical: 'شال / إيشارب', patterns: [/شال/, /ايشارب/, /كوفيه/, /سكارف/] },
+  { canonical: 'شنطة', patterns: [/شنط/, /حقيب/, /(^|\s)(ال)?بوك(?=\s|$)/, /كروس/, /توت باج/] },
+  { canonical: 'دمية أميجورومي', patterns: [/اميجورومي/, /(^|\s)(ال)?دمي(ه)?(?=\s|$)/, /عروسه لعبه/, /دبدوب/] },
+  { canonical: 'شال / إيشارب', patterns: [/(^|\s)(ال)?شال(ات)?(?=\s|$)/, /ايشارب/, /كوفيه/, /سكارف/] },
   { canonical: 'بطانية أطفال', patterns: [/بطاني/, /طقم مولود/, /مواليد/] },
   { canonical: 'بلوفر / ملابس', patterns: [/بلوفر/, /فستان/, /قبعه/, /طاقيه/, /ايس كاب/, /جوارب/, /لكلوك/] },
   { canonical: 'برواز / طارة تطريز', patterns: [/برواز/, /براويز/, /طاره/, /اسم مطرز/, /منديل/] },
-  { canonical: 'وسادة / كوشن', patterns: [/وساده/, /وسائد/, /كوشن/, /مخده/] },
-  { canonical: 'سجادة / سجاد حائط', patterns: [/سجاد/, /سجاده/, /كليم/, /مفرش/, /رانر/] },
+  { canonical: 'سجادة / سجاد حائط', patterns: [/سجاد/, /سجاده/, /كليم/, /(^|\s)(ال)?بوف(?=\s|$)/] },
   { canonical: 'ستارة وفواصل', patterns: [/ستار/, /ستاير/, /فواصل/] },
   { canonical: 'سلة تخزين', patterns: [/سله/, /سلال/, /منظم/, /باسكت/] },
   { canonical: 'شمعة معطرة', patterns: [/شمع/, /فواح/] },
   { canonical: 'صينية ديكور', patterns: [/صيني/, /طقم ضياف/] },
-  { canonical: 'إكسسوار / حلي', patterns: [/سلسل/, /انسيال/, /حلق/, /خاتم/, /بروش/, /اسور/, /توكه/, /اكسسوار/] },
+  { canonical: 'إكسسوار / حلي', patterns: [/سلسل/, /انسيال/, /(^|\s)(ال)?حلق(ان)?(?=\s|$)/, /خاتم/, /بروش/, /اسور/, /توكه/, /اكسسوار/] },
   { canonical: 'محفظة', patterns: [/محفظ/, /حافظه/] },
   { canonical: 'بوكس هدية', patterns: [/بوكس هدي/, /صندوق هدي/, /توزيعات/] },
 ];
@@ -298,7 +300,70 @@ export function understandProductSentence(
     candidateSpecialties = library.specialties.slice(0, 4);
   }
 
-  // استخراج نوع المنتج (الأولوية لمنتجات التخصص المتطابقة ثم المرادفات العامة)
+  // دعم ديناميكي لكل الحرف المسجلة في craftsRegistry (الـ 14 قسم و65+ حرفة) حتى لو مش موجودة صراحة في المكتبة التسويقية
+  if (!specialty) {
+    let bestReg: { craft: (typeof SUB_CRAFTS_REGISTRY)[number]; score: number; hitCat?: string } | null = null;
+    for (const craft of SUB_CRAFTS_REGISTRY) {
+      let cScore = 0;
+      let hitCat: string | undefined;
+      const nCraft = normalizeArabicMarketingText(craft.nameAr);
+      if (nCraft.length >= 3 && normalizedText.includes(nCraft)) {
+        cScore += 10;
+      } else {
+        const craftToks = tokenize(nCraft).filter((t) => t.length >= 3);
+        const hits = craftToks.filter((ct) => tokens.includes(ct));
+        if (hits.length > 0 && hits.length >= Math.min(2, craftToks.length)) {
+          cScore += 6 + hits.length * 1.5;
+        }
+      }
+      for (const cat of craft.sampleCategories) {
+        const nCat = normalizeArabicMarketingText(cat);
+        if (nCat.length >= 3 && normalizedText.includes(nCat)) {
+          cScore += 7;
+          hitCat = cat;
+          break;
+        }
+      }
+      if (cScore >= 7 && (!bestReg || cScore > bestReg.score)) {
+        bestReg = { craft, score: cScore, hitCat };
+      }
+    }
+    if (bestReg) {
+      const sec = MAIN_SECTIONS.find((s) => s.id === bestReg!.craft.mainSectionId);
+      const syntheticSpec: CraftMarketingSpecialty = {
+        id: `registry_${bestReg.craft.id}`,
+        nameAr: bestReg.craft.nameAr,
+        batch: 99,
+        keywords: [bestReg.craft.nameAr, ...bestReg.craft.sampleCategories],
+        popularItems: bestReg.craft.sampleCategories,
+        sellingPoints: [
+          'شغل يدوي متقن بتفاصيل خاصة',
+          'إمكانية التخصيص باللون والمقاس حسب طلب العميل',
+          `حرفة أصيلة من قسم ${sec?.nameAr || 'المنظومة الحرفية'}`,
+        ],
+        bundles: bestReg.craft.sampleCategories.slice(0, 3).map((c) => `طقم ${c} + تغليف هدية`),
+        typicalMaterials: [bestReg.craft.nameAr],
+        occasions: ['هدايا ومناسبات', 'تجهيز بيت جديد', 'عيد الأم', 'رمضان'],
+        photoTips: 'صوّر القطعة في ضوء نهار طبيعي مع خلفية هادية، ولقطة قريبة تبرز تفاصيل الشغل اليدوي وحجم القطعة الفعلي.',
+        customerFaqs: [],
+        videoIdeas: [
+          `لقطة سريعة من كواليس تنفيذ ${bestReg.hitCat || bestReg.craft.nameAr}`,
+          'استعراض القطعة في الاستخدام الفعلي قبل وبعد التنسيق',
+        ],
+        hashtags: [
+          `#${bestReg.craft.nameAr.replace(/\s+/g, '_').replace(/[^\u0600-\u06FF\w_]/g, '')}`,
+          '#هاندميد',
+          '#صنع_يدوي',
+          '#الشمساوية',
+        ],
+      };
+      specialty = syntheticSpec;
+      specialtyConfidence = bestReg.score >= 10 ? 'high' : 'medium';
+      candidateSpecialties = [syntheticSpec];
+    }
+  }
+
+  // استخراج نوع المنتج (الأولوية لمنتجات التخصص المتطابقة ثم المرادفات العامة، مع الحفاظ على الاسم المدمج مثل "كوشن مكرمية")
   let productType: string | undefined;
   if (specialty) {
     for (const pop of specialty.popularItems) {
@@ -313,7 +378,14 @@ export function understandProductSentence(
   if (!productType) {
     for (const entry of GENERAL_PRODUCT_SYNONYMS) {
       if (entry.patterns.some((p) => p.test(normalizedText))) {
-        productType = entry.canonical;
+        const primaryCanonical = entry.canonical.split('/')[0].trim();
+        // لو عندنا تخصص واضح زي "مكرمية" والمنتج "كوشن" -> نرجّع "كوشن مكرمية" بدل صياغة عامة
+        if (specialty && !normalizeArabicMarketingText(primaryCanonical).includes(normalizeArabicMarketingText(specialty.nameAr))) {
+          const shortSpecName = specialty.nameAr.split(' ')[0];
+          productType = `${primaryCanonical} ${shortSpecName}`;
+        } else {
+          productType = entry.canonical;
+        }
         break;
       }
     }

@@ -49,6 +49,7 @@ import { buildArtisanExecutiveBrief, buildSupplierExecutiveBrief } from '../../s
 import {
   resolveShamousaLocalChatbot,
   isCrossTenantOrSecretPrivacyQuery,
+  saveLocalShamousaRule,
   setServerShamousaRules,
   ShamousaChatbotOption,
   ShamousaConversationState,
@@ -98,6 +99,7 @@ import {
   isNewProductWizardTrigger,
   startNewProductWizard,
   advanceProductWizard,
+  shouldEscapeProductWizard,
   saveProductWizardPrefillDraft,
   type ProductWizardState,
   type ProductWizardChoice,
@@ -122,6 +124,8 @@ import {
   hydrateCustomLibrariesFromServer,
   isSuperAdminGuideQuery,
   isSuperAdminReviewPendingQuery,
+  isSuperAdminTrainingTrigger,
+  isSuperAdminUiCustomizerQuery,
   loadCustomLibrariesStore,
   matchCustomKnowledgeNote,
   parseAndSaveAdminLibraryEntry,
@@ -705,11 +709,13 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const isSuperAdminAccount =
     /hmb\.top\.tu[bp]e/i.test(String(profile.email || '').trim());
 
-  // وضع إضافة المكتبات الحصري للسوبر أدمن داخل شات شموسة
+  // وضع إضافة المكتبات وبروتوكول البرمجة («هبرمجك») الحصري للسوبر أدمن داخل شات شموسة
   const [adminLibMenuOpen, setAdminLibMenuOpen] = useState(false);
   const [activeAdminLibCategory, setActiveAdminLibCategory] = useState<AdminLibraryCategoryId | null>(null);
   const [showAdminLibSavedList, setShowAdminLibSavedList] = useState(false);
   const [customLibVersion, setCustomLibVersion] = useState(0);
+  const superAdminTrainingRef = useRef<{ active: boolean; buffer: string[] }>({ active: false, buffer: [] });
+  const [isSuperAdminTrainingActive, setIsSuperAdminTrainingActive] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2015,6 +2021,18 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         setAdminLibMenuOpen(false);
         return;
       }
+      if (isSuperAdminAccount && opt.queryText === '__OPEN_UI_CUSTOMIZER__') {
+        setAdminLibMenuOpen(false);
+        window.dispatchEvent(new CustomEvent('alshams_open_ui_customizer'));
+        setIsOpen(false);
+        return;
+      }
+      if (isSuperAdminAccount && opt.queryText === '__OPEN_UI_CUSTOMIZER_MANAGER__') {
+        setAdminLibMenuOpen(false);
+        window.dispatchEvent(new CustomEvent('alshams_open_ui_customizer_manager'));
+        setIsOpen(false);
+        return;
+      }
       await send(opt.queryText);
     }
   };
@@ -2082,9 +2100,180 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
     setIsLoading(true);
 
+    // 0.06 أمر السوبر أدمن المباشر لفتح «تخصيص الأزرار والبطاقات» من داخل شموسة (بدلاً من الزر العائم أسفل الشاشة)
+    if (isSuperAdminAccount && message && !currentAttachment && isSuperAdminUiCustomizerQuery(message)) {
+      productWizardRef.current = { active: false, currentStep: null, awaitingCustomInput: false, data: { features: [] } };
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a_sa_ui_cust_${Date.now()}`,
+          role: 'assistant',
+          isLocalChatbot: true,
+          content:
+            `تمام يا باشمهندس **${firstName}** 🎨 فتحتلك وضع **«تخصيص الأزرار والبطاقات»** على الصفحة الحالية، وهنزل الشات لحظة عشان تضغط على أي زر أو بطاقة وتعدّلها أو تخفيها براحتك! ولما تخلص اضغط «إنهاء التخصيص» فوق.`,
+        },
+      ]);
+      setIsLoading(false);
+      window.dispatchEvent(new CustomEvent('alshams_open_ui_customizer'));
+      window.setTimeout(() => setIsOpen(false), 750);
+      return;
+    }
+
+    // 0.07 بروتوكول البرمجة السري الحصري للسوبر أدمن («هبرمجك» ⬅️ شرح ⬅️ «فهمت؟!» ⬅️ «احفظ» ⬅️ «هنكمل» / «كده تمام»)
+    if (
+      isSuperAdminAccount &&
+      message &&
+      !currentAttachment &&
+      (superAdminTrainingRef.current.active || isSuperAdminTrainingTrigger(message))
+    ) {
+      try {
+        // إلغاء أي معالج قديم عشان شموسة متعلّقش أبداً وقت البرمجة
+        productWizardRef.current = { active: false, currentStep: null, awaitingCustomInput: false, data: { features: [] } };
+        minPriceOfferRef.current = { awaitingFloorPrice: false };
+        adminReviewSessionRef.current = INITIAL_ADMIN_REVIEW_SESSION;
+
+        const normTrain = message
+          .toLowerCase()
+          .replace(/[\u064B-\u065F\u0670]/g, '')
+          .replace(/[أإآٱ]/g, 'ا')
+          .replace(/ة/g, 'ه')
+          .replace(/[ىي]/g, 'ي')
+          .trim();
+
+        const isStartCmd = !superAdminTrainingRef.current.active && isSuperAdminTrainingTrigger(message);
+        const isDoneCmd = /^(كده تمام|خلاص كده تمام|اقفل البرمجه|انهاء البرمجه|خروج من البرمجه|الغاء|الغي)$/.test(normTrain);
+        const isUnderstoodCmd = /^(فهمت|فهمتي)[\s؟?!]*$/.test(normTrain);
+        const isSaveCmd = /^(احفظ|حفظ|احفظها|ثبت|احفظ القاعده|اعتمد)$/.test(normTrain);
+        const isContinueCmd = /^(هنكمل|كمل|قاعده تانيه)$/.test(normTrain);
+
+        let replyText = '';
+        let trainOptions: ShamousaChatbotOption[] = [];
+
+        if (isStartCmd) {
+          superAdminTrainingRef.current = { active: true, buffer: [] };
+          setIsSuperAdminTrainingActive(true);
+          playSuccessSound();
+          replyText =
+            `تحت أمرك يا باشمهندس **${firstName}** ☀️🔐 كلمة السر اتفعّلت و**وضع البرمجة والتدريب المباشر** مفتوح دلوقتي!\n\n` +
+            `ابعتلي القاعدة أو المعلومة أو التحديث اللي عايزني أحفظه (في رسالة أو أكتر)، ولما تخلص قولي:\n` +
+            `• **«فهمت؟!»** عشان ألخّصهالك وتراجعها.\n` +
+            `• **«احفظ»** عشان أثبّتها فوراً في ذاكرتي لكل الورش.\n` +
+            `• **«كده تمام»** لما تخلص ونرجع للشات العادي.`;
+          trainOptions = [
+            { id: 'sa_tr_lib', label: '📚 افتح إضافة للمكتبات مباشرة', queryText: '__OPEN_ADMIN_LIB__:marketing_new_specialty' },
+            { id: 'sa_tr_ui', label: '🎨 تخصيص الأزرار والبطاقات', queryText: '__OPEN_UI_CUSTOMIZER__' },
+            { id: 'sa_tr_done', label: '🏁 كده تمام (خروج)', queryText: 'كده تمام' },
+          ];
+        } else if (isDoneCmd) {
+          superAdminTrainingRef.current = { active: false, buffer: [] };
+          setIsSuperAdminTrainingActive(false);
+          playSuccessSound();
+          replyText = `تمام يا باشمهندس **${firstName}** ☀️ قفلت وضع البرمجة ورجعت للشات الطبيعي — أي حاجة حفظتها شغالة معايا فوراً!`;
+        } else if (isContinueCmd) {
+          superAdminTrainingRef.current = { active: true, buffer: [] };
+          setIsSuperAdminTrainingActive(true);
+          replyText = `جاهزة يا باشمهندس **${firstName}** ✍️ ابعتلي القاعدة الجديدة وانا بكتب وراك خطوة بخطوة!`;
+          trainOptions = [
+            { id: 'sa_tr_u2', label: '✅ فهمت؟!', queryText: 'فهمت؟!' },
+            { id: 'sa_tr_s2', label: '💾 احفظ', queryText: 'احفظ' },
+            { id: 'sa_tr_d2', label: '🏁 كده تمام', queryText: 'كده تمام' },
+          ];
+        } else if (isUnderstoodCmd) {
+          const buf = superAdminTrainingRef.current.buffer;
+          if (buf.length === 0) {
+            replyText = `لسه ما بعتليش نص القاعدة يا باشمهندس **${firstName}** — اكتبلي القاعدة أو المعلومة الأول وبعدها قولي «فهمت؟!» أو «احفظ» ☀️`;
+          } else {
+            const preview = buf.join('\n');
+            replyText =
+              `أيوة يا باشمهندس **${firstName}**، فهمت 100% ✅ وده اللي سجّلته من كلامك:\n\n` +
+              `> ${preview.replace(/\n/g, '\n> ')}\n\n` +
+              `لو كده مظبوط اضغط **«احفظ»** عشان أثبّته فوراً في ذاكرتي، أو كمّل شرح لو تحب تزوّد تفاصيل.`;
+            trainOptions = [
+              { id: 'sa_tr_save_now', label: '💾 تمام — احفظ في ذاكرة شموسة', queryText: 'احفظ' },
+              { id: 'sa_tr_done_now', label: '🏁 كده تمام (إلغاء وخروج)', queryText: 'كده تمام' },
+            ];
+          }
+        } else if (isSaveCmd) {
+          const buf = superAdminTrainingRef.current.buffer;
+          if (buf.length === 0) {
+            replyText = `مفيش نص جديد في المسودة حالياً يا باشمهندس **${firstName}** — اكتبلي المعلومة أو القاعدة الأول وبعدين قولي «احفظ» ☀️`;
+          } else {
+            const joinedRule = buf.join('\n').trim();
+            const keywords = Array.from(
+              new Set(
+                joinedRule
+                  .split(/\s+/)
+                  .map((w) => w.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g, ''))
+                  .filter((w) => w.length >= 3)
+                  .slice(0, 8)
+              )
+            );
+            // 1) حفظ في قواعد الشات بوت المحلي (التوافق الكامل مع البروتوكول القديم)
+            saveLocalShamousaRule({
+              title: joinedRule.split('\n')[0].slice(0, 60) || 'قاعدة السوبر أدمن',
+              keywords,
+              answer: `📌 **قاعدة معتمدة من إدارة الشمساوية:**\n${joinedRule}`,
+            });
+            // 2) حفظ أيضاً في مخزن المكتبات المخصص ومزامنته للسيرفر
+            const libSave = parseAndSaveAdminLibraryEntry('marketing_methods_and_tech', joinedRule);
+            setCustomLibVersion((v) => v + 1);
+            if (libSave.ok && libSave.storeSnapshot) {
+              authedFetch('/api/admin/shamousa/custom-libraries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ store: libSave.storeSnapshot }),
+              }).catch(() => {});
+            }
+            superAdminTrainingRef.current = { active: true, buffer: [] };
+            playSuccessSound();
+            replyText =
+              `✅ **تم الحفظ والتثبيت في ذاكرة شموسة بنجاح يا باشمهندس ${firstName}!**\n` +
+              `• الكلمات المفتاحية المربوطة: ${keywords.slice(0, 6).join('، ') || 'عامة'}\n\n` +
+              `تحب نضيف قاعدة تانية (**«هنكمل»** أو ابعتها على طول) ولا نقفل وضع البرمجة (**«كده تمام»**)؟`;
+            trainOptions = [
+              { id: 'sa_tr_next', label: '➕ هنكمل (قاعدة جديدة)', queryText: 'هنكمل' },
+              { id: 'sa_tr_finish', label: '🏁 كده تمام (رجوع للشات)', queryText: 'كده تمام' },
+            ];
+          }
+        } else {
+          // تجميع شرح السوبر أدمن داخل المسودة
+          superAdminTrainingRef.current = {
+            active: true,
+            buffer: [...superAdminTrainingRef.current.buffer, message],
+          };
+          replyText =
+            `سجّلت الجزء ده في المسودة يا باشمهندس **${firstName}** ✍️ (إجمالي ${superAdminTrainingRef.current.buffer.length} سطر/رسالة).\n` +
+            `كمّل شرح لو لسه فيه تفاصيل، أو اضغط **«فهمت؟!»** للمراجعة أو **«احفظ»** للتثبيت الفوري.`;
+          trainOptions = [
+            { id: 'sa_tr_chk', label: '✅ فهمت؟!', queryText: 'فهمت؟!' },
+            { id: 'sa_tr_sv', label: '💾 احفظ فوراً', queryText: 'احفظ' },
+            { id: 'sa_tr_ex', label: '🏁 كده تمام (خروج)', queryText: 'كده تمام' },
+          ];
+        }
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_sa_train_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: replyText,
+            chatbotOptions: trainOptions.length > 0 ? trainOptions : undefined,
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      } catch (trainErr) {
+        console.warn('[Shamousa] Super Admin training protocol recovered safely:', trainErr);
+        superAdminTrainingRef.current = { active: false, buffer: [] };
+        setIsSuperAdminTrainingActive(false);
+      }
+    }
+
     // 0.08 دليل السوبر أدمن الشخصي: لو نسي إزاي يبرمج شموسة أو يضيف/يحفظ في المكتبات -> تشرحله الخطوات وتفتحله الأزرار فوراً
     if (isSuperAdminAccount && message && !currentAttachment && isSuperAdminGuideQuery(message)) {
       try {
+        productWizardRef.current = { active: false, currentStep: null, awaitingCustomInput: false, data: { features: [] } };
         const guide = buildSuperAdminLibraryGuide(firstName);
         setMessages((prev) => [
           ...prev,
@@ -2248,27 +2437,36 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         };
       };
 
-      // (أ) استكمال خطوة في معالج «منتج جديد» النشط حالياً
+      // (أ) استكمال خطوة في معالج «منتج جديد» النشط حالياً — مع فكّ التعلّق تلقائياً لو المستخدم غيّر الموضوع أو سأل سؤال تاني!
       if (productWizardRef.current.active) {
-        const wCtx = await buildWizardCtx();
-        const turn = advanceProductWizard(productWizardRef.current, message, wCtx);
-        productWizardRef.current = turn.nextState;
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `a_pw_${Date.now()}`,
-            role: 'assistant',
-            isLocalChatbot: true,
-            content: turn.reply,
-            wizardChoices: turn.choices,
-            wizardMultiSelected: turn.selectedMultiValues,
-            copyBlocks: turn.copyBlocks,
-            productPrefillDraft: turn.prefillDraft,
-            actionLink: turn.actionLink,
-          },
-        ]);
-        setIsLoading(false);
-        return;
+        if (shouldEscapeProductWizard(message, productWizardRef.current)) {
+          productWizardRef.current = {
+            active: false,
+            currentStep: null,
+            awaitingCustomInput: false,
+            data: { features: [] },
+          };
+        } else {
+          const wCtx = await buildWizardCtx();
+          const turn = advanceProductWizard(productWizardRef.current, message, wCtx);
+          productWizardRef.current = turn.nextState;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_pw_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: turn.reply,
+              wizardChoices: turn.choices,
+              wizardMultiSelected: turn.selectedMultiValues,
+              copyBlocks: turn.copyBlocks,
+              productPrefillDraft: turn.prefillDraft,
+              actionLink: turn.actionLink,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
       }
 
       // (ب) استكمال سؤال «أقل سعر تقبل تبيع بيه كام؟» (قاعدة 6.1 بدون تكاليف)
@@ -2857,7 +3055,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       // (ي) محرك فهم المنتج والمكتبة التسويقية (كلمة واحدة / تخصص / عامية / أخطاء إملائية / أفكار فيديو وتصوير وباقات وهاشتاجات)
       const isErpOrSystemQuery =
-        /(مبيعات|خامات|مخزون|عملاء|فواتير|خزنه|ارباح|مصروفات|باقات|اشتراك|صقر|كلمه السر|حاسبه|اوردر|مواعيد|تنبيه)/.test(
+        /(مبيعات|خامات|مخزون|عملاء|فواتير|خزنه|ارباح|مصروفات|باقات الاشتراك|باقات المنظومه|باقاتي|اشتراك|صقر|كلمه السر|حاسبه|اوردر|مواعيد|تنبيه)/.test(
           normIntent
         );
       if (!isErpOrSystemQuery && !useGoogleSearch && !sendOptions?.forceAI) {
@@ -3284,13 +3482,42 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           return;
         }
 
-        // 3) تخصص واضح + طلب تسويقي/تصوير/فيديو/باقات/هاشتاجات أو منتج محدد
+        // 3) تخصص واضح + طلب تسويقي/تصوير/فيديو/باقات/هاشتاجات أو منتج محدد (مع التحقق من منتجات الورشة الفعلية أيضاً)
         if (understood.specialty && (asksMarketingIntent || understood.productType || understood.occasion)) {
           const spec = understood.specialty;
-          const prodLabel = understood.productType || `قطعة ${spec.nameAr}`;
+          // فحص منتجات الورشة المحفوظة فعلياً لو في منتج مطابق (مثلاً كوشن مكرمية متسجّل في الكتالوج بسعره الحقيقي)
+          let matchedWorkshopProduct: { name: string; price?: number } | null = null;
+          try {
+            if (workshopId) {
+              const savedProds = await db.products
+                .where('tenantId')
+                .equals(workshopId)
+                .toArray()
+                .catch(() => []);
+              const normProdTarget = (understood.productType || '').toLowerCase();
+              const found = savedProds.find((p) => {
+                if (p.isActive === false || !p.productName) return false;
+                const pName = p.productName.toLowerCase();
+                return (
+                  (normProdTarget && (pName.includes(normProdTarget) || normProdTarget.includes(pName))) ||
+                  normIntent.includes(pName)
+                );
+              });
+              if (found) {
+                const pPrice = Number(found.storePrice || found.retailPrice || found.output?.finalSellingPrice || 0);
+                matchedWorkshopProduct = { name: found.productName, price: pPrice > 0 ? pPrice : undefined };
+              }
+            }
+          } catch {
+            matchedWorkshopProduct = null;
+          }
+
+          const prodLabel = matchedWorkshopProduct?.name || understood.productType || `قطعة ${spec.nameAr}`;
+          const effectivePrice =
+            understood.numericPrice || matchedWorkshopProduct?.price;
           recordAccountMarketingInsight(accountIdForPkg, {
             kind: 'specialty_focus',
-            titleAr: `تركيز تسويقي على «${spec.nameAr}»`,
+            titleAr: `تركيز تسويقي على «${prodLabel}»`,
             detailAr: `نقدر نجهزلك باقات هدايا أو أفكار تصوير سريعة لـ ${prodLabel}.`,
             queryText: `أفكار فيديو وتصوير ${spec.nameAr}`,
           });
@@ -3301,8 +3528,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             occasion: understood.occasion || understood.audience,
             colorOrStyle: understood.colorOrStyle,
             sizeDetails: understood.sizeDetails,
-            priceText: understood.numericPrice
-              ? `${understood.numericPrice.toLocaleString('ar-EG')} ${profile.currencySymbol || 'ج.م'}`
+            priceText: effectivePrice
+              ? `${effectivePrice.toLocaleString('ar-EG')} ${profile.currencySymbol || 'ج.م'}`
               : undefined,
             specialty: spec,
             realProductFactsText: message,
@@ -4685,6 +4912,38 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   className="hidden"
                 />
 
+                {/* شريط وضع البرمجة السري النشط («هبرمجك») للسوبر أدمن */}
+                {isSuperAdminAccount && isSuperAdminTrainingActive && (
+                  <div className="max-w-3xl mx-auto mb-2 px-3 py-2 rounded-xl bg-[#0C1427] border border-[#EA580C]/80 flex flex-wrap items-center justify-between gap-2 text-xs text-[#F7F3EA]">
+                    <div className="flex items-center gap-1.5 font-black text-[#FBBF24]">
+                      <span>🔐 وضع البرمجة («هبرمجك») مفعّل الآن</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => send('فهمت؟!')}
+                        className="px-2 py-1 rounded-lg bg-[#132960] border border-[#3454A1] text-[11px] font-bold text-white hover:brightness-110 cursor-pointer"
+                      >
+                        فهمت؟!
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => send('احفظ')}
+                        className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 cursor-pointer"
+                      >
+                        احفظ 💾
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => send('كده تمام')}
+                        className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-bold hover:bg-rose-700 cursor-pointer"
+                      >
+                        كده تمام ×
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* شريط وضع «إضافة للمكتبات» الحصري للسوبر أدمن + قائمة المحفوظات */}
                 {isSuperAdminAccount && activeAdminLibCategory && (() => {
                   const activeCat = ADMIN_LIBRARY_CATEGORIES.find((c) => c.id === activeAdminLibCategory);
@@ -4933,7 +5192,42 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                                   </div>
                                 </button>
                               ))}
-                              <div className="border-t border-[#E3D8C5] dark:border-[#223B78] pt-1">
+                              <div className="border-t border-[#E3D8C5] dark:border-[#223B78] pt-1 space-y-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    playButtonClickSound();
+                                    setAdminLibMenuOpen(false);
+                                    void send('هبرمجك');
+                                  }}
+                                  className="w-full text-right px-2.5 py-1.5 rounded-xl text-[11px] font-black text-amber-800 dark:text-amber-300 hover:bg-[#EFE6D7] dark:hover:bg-[#17306F] cursor-pointer"
+                                >
+                                  🔐 بدء وضع البرمجة («هبرمجك»)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    playButtonClickSound();
+                                    setAdminLibMenuOpen(false);
+                                    window.dispatchEvent(new CustomEvent('alshams_open_ui_customizer'));
+                                    setIsOpen(false);
+                                  }}
+                                  className="w-full text-right px-2.5 py-1.5 rounded-xl text-[11px] font-black text-[#EA580C] dark:text-[#FBBF24] hover:bg-[#EFE6D7] dark:hover:bg-[#17306F] cursor-pointer"
+                                >
+                                  🎨 تخصيص الأزرار والبطاقات (في الصفحة الحالية)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    playButtonClickSound();
+                                    setAdminLibMenuOpen(false);
+                                    window.dispatchEvent(new CustomEvent('alshams_open_ui_customizer_manager'));
+                                    setIsOpen(false);
+                                  }}
+                                  className="w-full text-right px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-[#475569] dark:text-[#CBD5E1] hover:bg-[#EFE6D7] dark:hover:bg-[#17306F] cursor-pointer"
+                                >
+                                  🛠️ إدارة تعديلات الأزرار والبطاقات
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => {

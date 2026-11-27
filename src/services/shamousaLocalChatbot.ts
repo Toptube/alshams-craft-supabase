@@ -2384,12 +2384,19 @@ export function resolveShamousaLocalChatbot(
   }
 
   // 9. EXPLICIT MATERIAL CODE / ITEM LOOKUP (Acceptance Test #2: "خيط ٣ مم بيج كوده ايه")
-  const looksLikeSpecificMaterialLookup =
-    /\b(th|bd|cl|wd|lt|mt|dc|ar|pk|pp|gl|ax)\d*\b/i.test(normQuery) ||
-    (/(خيط|حبل|كردون|مجدول|بوليستر|خرز|ايبوكسي|شمع|صودا|خشب|جلد|قماش|ورق|كرتون|علبه)/.test(normQuery) &&
-      /(كود|كوده|مم|مللي|مقاس|سمك|رقم|لون|بيج|ابيض|اسود|موحده)/.test(normQuery));
+  // لا نخطف أسئلة التسويق/البوستات/الإعلانات لصالح بحث الخامات الموحدة!
+  const isExplicitMarketingQuery =
+    /(تسويق|اسوق|نسوق|اعلان|بوست|حمله|هاشتاج|وسوم|ريلز|فيديو تسويقي|افكار تصوير)/.test(normQuery) &&
+    !/(كود|كوده|اكواد|خامه موحده|خامات موحده)/.test(normQuery);
 
-  const materialMatch = canInventory ? matchUnifiedMaterialLocally(normQuery, tokens, firstName) : null;
+  const looksLikeSpecificMaterialLookup =
+    !isExplicitMarketingQuery &&
+    (/\b(th|bd|cl|wd|lt|mt|dc|ar|pk|pp|gl|ax)\d*\b/i.test(normQuery) ||
+      (/(خيط|حبل|كردون|مجدول|بوليستر|خرز|ايبوكسي|شمع|صودا|خشب|جلد|قماش|ورق|كرتون|علبه)/.test(normQuery) &&
+        /(كود|كوده|مم|مللي|مقاس|سمك|رقم|لون|بيج|ابيض|اسود|موحده)/.test(normQuery)));
+
+  const materialMatch =
+    canInventory && !isExplicitMarketingQuery ? matchUnifiedMaterialLocally(normQuery, tokens, firstName) : null;
   if (materialMatch && (looksLikeSpecificMaterialLookup || materialMatch.confidence === 'high')) {
     return {
       ...materialMatch,

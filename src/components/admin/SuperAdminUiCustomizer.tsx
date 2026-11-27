@@ -8,7 +8,6 @@ import {
   RotateCcw,
   Save,
   Search,
-  SlidersHorizontal,
   Trash2,
   X,
 } from 'lucide-react';
@@ -249,9 +248,25 @@ export const SuperAdminUiCustomizer: React.FC = () => {
       checkAdmin(session?.user?.email);
     });
 
+    const handleOpenCustomizer = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ toggle?: boolean }>)?.detail;
+      setEditMode((prev) => {
+        const next = detail?.toggle ? !prev : true;
+        setShowHiddenPreview(next);
+        return next;
+      });
+    };
+    const handleOpenManager = () => {
+      setManagerOpen(true);
+    };
+    window.addEventListener('alshams_open_ui_customizer', handleOpenCustomizer);
+    window.addEventListener('alshams_open_ui_customizer_manager', handleOpenManager);
+
     return () => {
       mounted = false;
       sub?.subscription?.unsubscribe();
+      window.removeEventListener('alshams_open_ui_customizer', handleOpenCustomizer);
+      window.removeEventListener('alshams_open_ui_customizer_manager', handleOpenManager);
     };
   }, []);
 
@@ -474,33 +489,18 @@ export const SuperAdminUiCustomizer: React.FC = () => {
   // Non-super-admins never see any editor UI — only receive the applied overrides silently!
   if (!adminEmail) return null;
 
+  // لا نعرض أي زر أسود عائم ثابت أسفل الصفحة — التفعيل يتم فقط من داخل شموسة للسوبر أدمن أو استوديو التخطيط!
+  if (!editMode && !managerOpen && !editingTarget && !toast) return null;
+
   return (
     <div data-sa-customizer="true" dir="rtl" className="font-sans">
-      {/* Compact Bottom-Left Floating Trigger / Active Bar */}
-      <div
-        data-sa-customizer="true"
-        className="fixed bottom-4 left-4 z-[9990] flex flex-wrap items-center gap-2 max-w-[calc(100vw-2rem)]"
-      >
-        {!editMode ? (
-          <button
-            type="button"
-            onClick={() => {
-              setEditMode(true);
-              setShowHiddenPreview(true);
-            }}
-            className="h-10 px-3.5 rounded-xl bg-[#0C1427] hover:bg-[#132040] text-[#F7F3EA] border border-[#EA580C]/70 shadow-lg flex items-center gap-2 text-xs font-bold whitespace-nowrap cursor-pointer transition-transform active:scale-95"
-            title="تعديل اسم أي بطاقة أو زر أو إخفاء أي زر في الصفحة الحالية"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 text-[#FBBF24] shrink-0" />
-            <span>تخصيص الأزرار والبطاقات</span>
-            {overridesList.length > 0 && (
-              <span className="text-[11px] font-mono text-[#FBBF24]">
-                ({overridesList.length})
-              </span>
-            )}
-          </button>
-        ) : (
-          <div className="rounded-2xl bg-[#0C1427] text-[#F7F3EA] border-2 border-[#EA580C] shadow-2xl px-3 py-2 flex flex-wrap items-center gap-2">
+      {/* شريط التخصيص النشط يظهر فقط أثناء تفعيل وضع التعديل من شموسة للسوبر أدمن */}
+      {editMode && (
+        <div
+          data-sa-customizer="true"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[9990] flex flex-wrap items-center justify-center gap-2 max-w-[calc(100vw-1.5rem)]"
+        >
+          <div className="rounded-2xl bg-[#0C1427] text-[#F7F3EA] border-2 border-[#EA580C] shadow-2xl px-3 py-2 flex flex-wrap items-center justify-center gap-2">
             <span className="text-xs font-bold text-[#FBBF24] flex items-center gap-1.5 whitespace-nowrap">
               <Pencil className="w-3.5 h-3.5 shrink-0" />
               <span>اضغط على أي بطاقة أو زر لتعديله</span>
@@ -538,14 +538,14 @@ export const SuperAdminUiCustomizer: React.FC = () => {
                 setEditMode(false);
                 setShowHiddenPreview(false);
               }}
-              className="h-8 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1 whitespace-nowrap cursor-pointer"
+              className="h-8 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1 whitespace-nowrap cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
-              <span>إنهاء</span>
+              <span>إنهاء التخصيص</span>
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Feedback Toast */}
       {toast && (

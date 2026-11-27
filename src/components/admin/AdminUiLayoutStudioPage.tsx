@@ -1813,29 +1813,38 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
             <div>
               <h3 className="text-sm font-black">تعديلات الأسماء والإخفاء المباشر على مستوى جميع الصفحات</h3>
               <p className="text-xs text-[#475569] dark:text-[#CBD5E1] mt-1">
-                يمكنك استخدام زر «تخصيص الأزرار والبطاقات» أسفل يسار الشاشة في أي صفحة لتغيير اسم أي بطاقة أو زر أو إخفائه فوراً، وستظهر كافة تعديلاتك هنا للمراجعة أو الاستعادة.
+                يمكنك تفعيل وضع «تخصيص الأزرار والبطاقات» في أي وقت من داخل **شموسة (للسوبر أدمن)** أو بالضغط على الزر المباشر هنا لتعديل اسم أي بطاقة أو زر أو إخفائه فوراً.
               </p>
             </div>
-            {Object.keys(draft.globalElementOverrides || {}).length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={() =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    globalElementOverrides: {},
-                    updatedAt: new Date().toISOString(),
-                  }))
-                }
-                className="px-3 py-2 rounded-xl border border-rose-300 text-rose-600 text-xs font-black hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                onClick={() => window.dispatchEvent(new CustomEvent('alshams_open_ui_customizer'))}
+                className="px-3 py-2 rounded-xl bg-[#0C1427] hover:bg-[#132040] text-[#F7F3EA] border border-[#EA580C]/70 text-xs font-black cursor-pointer"
               >
-                مسح كل التعديلات المباشرة
+                🎨 تشغيل وضع تخصيص الأزرار والبطاقات الآن
               </button>
-            )}
+              {Object.keys(draft.globalElementOverrides || {}).length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      globalElementOverrides: {},
+                      updatedAt: new Date().toISOString(),
+                    }))
+                  }
+                  className="px-3 py-2 rounded-xl border border-rose-300 text-rose-600 text-xs font-black hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                >
+                  مسح كل التعديلات المباشرة
+                </button>
+              )}
+            </div>
           </div>
 
           {Object.keys(draft.globalElementOverrides || {}).length === 0 ? (
             <div className="rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-8 text-center text-xs text-[#475569] dark:text-[#CBD5E1]">
-              لا توجد تعديلات مباشرة محفوظة حالياً. افتح أي صفحة في المنظومة واضغط زر «تخصيص الأزرار والبطاقات» أسفل اليسار ثم اضغط على أي زر أو بطاقة لتعديلها.
+              لا توجد تعديلات مباشرة محفوظة حالياً. افتح شموسة واضغط «تخصيص الأزرار والبطاقات» (أو اكتب لشموسة «تخصيص الأزرار») لتعديل أو إخفاء أي زر أو بطاقة في أي صفحة.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
